@@ -4,9 +4,9 @@ from matplotlib.patches import Circle
 from tqdm import tqdm
 
 # PARAMETERS 
-D = 4.0           # Cylinder diameter [m]
+D = 4.88           # Cylinder diameter [m]
 a = D / 2         # Radius
-spacing = 43.0    # Center-to-center spacing [m]
+spacing = 40.0    # Center-to-center spacing [m]
 U_inf = 1.0       # Freestream velocity [m/s]
 Re = 100.0        # Reynolds number
 St = 0.2          # Strouhal number
@@ -20,9 +20,16 @@ shed_period = D / (St * U_inf)  # Shedding period T_shed
 # Vortex parameters 
 sigma_0 = 0.1 * D
 Gamma_mag = 2.0 * np.pi * St * U_inf * D  # |Gamma| with C_gamma = 2*pi
-theta_sep = 1.4   # Separation angle ~80 deg in radians from rear
+theta_sep = np.radians(80)   # Separation angle ~80 deg in radians from rear
 
-# Cylinders 
+# Rotation and flow angles
+rotation_angle = 30.0   # Cylinder cluster rotation [degrees]
+flow_angle_metocean = 270.0  # Flow direction [degrees, metocean: 0=from N, 90=from E, 180=from S, 270=from W]
+
+# Convert metocean convention to mathematical convention (0=right, 90=up, 180=left, 270=down)
+flow_angle = 270.0 - flow_angle_metocean
+
+# Cylinders
 s = spacing / 2.0
 cylinders = [
     {'x': -s, 'y': +s},
@@ -31,14 +38,20 @@ cylinders = [
     {'x': +s, 'y': -s},
 ]
 
+# Apply rotation and flow angle transforms
+def apply_transforms(x, y, rot_deg, flow_deg):
+    total_angle = np.radians(rot_deg + flow_deg)
+    c, s = np.cos(total_angle), np.sin(total_angle)
+    return c*x - s*y, s*x + c*y
+
 # Optimized function to compute velocities at arbitrary target points
 def compute_velocities_at_points(targets_x, targets_y, sources_x, sources_y, gammas, sigmas):
     M = len(targets_x)
     if M == 0:
         return np.array([]), np.array([])
-    
-    U = np.full(M, U_inf)
-    V = np.full(M, 0.0)
+
+    U = np.full(M, U_inf * np.cos(np.radians(flow_angle)))
+    V = np.full(M, U_inf * np.sin(np.radians(flow_angle)))
     N = len(sources_x)
     
     # Add contributions from all direct vortices
@@ -60,14 +73,15 @@ def compute_velocities_at_points(targets_x, targets_y, sources_x, sources_y, gam
     
     # Add contributions from all image vortices
     for cyl in cylinders:
-        x_rel = sources_x - cyl['x']
-        y_rel = sources_y - cyl['y']
+        x_cyl, y_cyl = apply_transforms(cyl['x'], cyl['y'], rotation_angle, flow_angle)
+        x_rel = sources_x - x_cyl
+        y_rel = sources_y - y_cyl
         r_sq = x_rel**2 + y_rel**2
         mask_out = r_sq > a**2 + 1e-6
         x_img = np.full(N, 0.0)
         y_img = np.full(N, 0.0)
-        x_img[mask_out] = cyl['x'] + (a**2 * x_rel[mask_out]) / r_sq[mask_out]
-        y_img[mask_out] = cyl['y'] + (a**2 * y_rel[mask_out]) / r_sq[mask_out]
+        x_img[mask_out] = x_cyl + (a**2 * x_rel[mask_out]) / r_sq[mask_out]
+        y_img[mask_out] = y_cyl + (a**2 * y_rel[mask_out]) / r_sq[mask_out]
         gamma_img = -gammas
         sigma_img = sigmas
         
@@ -91,15 +105,16 @@ def compute_velocities_at_points(targets_x, targets_y, sources_x, sources_y, gam
     
     return U, V
 
-# Shed vortex 
+# Shed vortex
 def shed_vortex(cyl, t, upper=True):
     sign = 1 if upper else -1
     gamma = -Gamma_mag if upper else Gamma_mag  # upper clockwise (neg), lower counter (pos)
-    
+
     theta = np.pi - sign * theta_sep
-    x_shed = cyl['x'] + a * np.cos(theta)
-    y_shed = cyl['y'] + a * np.sin(theta)
-    
+    x_local = cyl['x'] + a * np.cos(theta)
+    y_local = cyl['y'] + a * np.sin(theta)
+    x_shed, y_shed = apply_transforms(x_local, y_local, rotation_angle, flow_angle)
+
     return {'x': x_shed, 'y': y_shed, 'gamma': gamma, 'sigma': sigma_0, 'birth_t': t, 'parent_cyl': cyl}
 
 # Main simulation (optimized)
@@ -186,8 +201,8 @@ y = np.linspace(y_min, y_max, grid_size)
 X, Y = np.meshgrid(x, y)
 
 def compute_velocity_field(X, Y, vortices):
-    U = np.full_like(X, U_inf)
-    V = np.full_like(X, 0.0)
+    U = np.full_like(X, U_inf * np.cos(np.radians(flow_angle)))
+    V = np.full_like(X, U_inf * np.sin(np.radians(flow_angle)))
 
     for v in vortices:
         DX = X - v['x']
@@ -206,13 +221,14 @@ def compute_velocity_field(X, Y, vortices):
         V += V_ind
         
         for cyl in cylinders:
-            x_rel = v['x'] - cyl['x']
-            y_rel = v['y'] - cyl['y']
+            x_cyl, y_cyl = apply_transforms(cyl['x'], cyl['y'], rotation_angle, flow_angle)
+            x_rel = v['x'] - x_cyl
+            y_rel = v['y'] - y_cyl
             r_sq = x_rel**2 + y_rel**2
             if r_sq <= a**2 + 1e-6:
                 continue
-            x_img = cyl['x'] + (a**2 * x_rel) / r_sq
-            y_img = cyl['y'] + (a**2 * y_rel) / r_sq
+            x_img = x_cyl + (a**2 * x_rel) / r_sq
+            y_img = y_cyl + (a**2 * y_rel) / r_sq
             gamma_img = -v['gamma']
             sigma_img = v['sigma']
             
@@ -249,8 +265,9 @@ ax.quiver(X[::skip, ::skip], Y[::skip, ::skip],
           color='white', alpha=0.7, scale=40, width=0.0015)  # Smaller, finer arrows
 
 for cyl in cylinders:
-    circle = Circle((cyl['x'], cyl['y']), D/2, 
-                    color='gray', fill=True, zorder=10, 
+    x_cyl, y_cyl = apply_transforms(cyl['x'], cyl['y'], rotation_angle, flow_angle)
+    circle = Circle((x_cyl, y_cyl), D/2,
+                    color='gray', fill=True, zorder=10,
                     edgecolor='black', linewidth=2)
     ax.add_patch(circle)
 
@@ -262,7 +279,7 @@ ax.set_xlim(x_min, x_max)
 ax.set_ylim(y_min, y_max)
 ax.set_xlabel('x [m]')
 ax.set_ylabel('y [m]')
-ax.set_title(f'4-Cylinder Dynamic Wake (D={D}m, Spacing={spacing}m, Re={Re}, t={total_time}s)')
+ax.set_title(f'4-Cylinder Dynamic Wake (D={D}m, Spacing={spacing}m, Re={Re}, Rotation={rotation_angle}°, Flow={flow_angle_metocean}°, t={total_time}s)')
 ax.set_aspect('equal')
 ax.grid(True, alpha=0.3)
 
