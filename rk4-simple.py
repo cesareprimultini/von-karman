@@ -1,9 +1,16 @@
+"""
+Simple viscous vortex method for Von Kármán vortex streets
+NO boundary condition enforcement - just natural shedding and advection
+Use this for calculating vortex wake velocity contributions at probe locations
+Combine with separate potential flow and global flow calculations
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from tqdm import tqdm
 
-# PARAMETERS 
+# PARAMETERS
 D = 4.88           # Cylinder diameter [m]
 a = D / 2         # Radius
 spacing = 40.0    # Center-to-center spacing [m]
@@ -13,23 +20,21 @@ St = 0.2          # Strouhal number
 nu = U_inf * D / Re  # Kinematic viscosity
 
 # Simulation parameters
-dt = 0.03         # Time step (must be < sigma_0 / U_max ~0.5 for stability)
-total_time = 300.0  # Total simulation time (adjust for longer wakes)
+dt = 0.03         # Time step
+total_time = 300.0  # Total simulation time
 shed_period = D / (St * U_inf)  # Shedding period T_shed
 
-# Downstream vortex removal boundary (to prevent unbounded accumulation)
+# Downstream vortex removal boundary
 x_removal = 150.0  # Remove vortices beyond this x-coordinate
 
-# Vortex parameters 
+# Vortex parameters
 sigma_0 = 0.1 * D
 Gamma_mag = 2.0 * np.pi * St * U_inf * D  # |Gamma| with C_gamma = 2*pi
-theta_sep = np.radians(80)   # Separation angle ~80 deg in radians from rear
+theta_sep = np.radians(80)   # Separation angle ~80 deg from rear
 
 # Rotation and flow angles
 rotation_angle = 30.0   # Cylinder cluster rotation [degrees]
-flow_angle_metocean = 270.0  # Flow direction [degrees, metocean: 0=from N, 90=from E, 180=from S, 270=from W]
-
-# Convert metocean convention to mathematical convention (0=right, 90=up, 180=left, 270=down)
+flow_angle_metocean = 270.0  # Flow direction [degrees]
 flow_angle = 270.0 - flow_angle_metocean
 
 # Cylinders
@@ -44,14 +49,14 @@ cylinders = [
 # Measurement probe location
 measure_point = (32.0, 5.0)
 
-# Apply rotation and flow angle transforms
 def apply_transforms(x, y, rot_deg, flow_deg):
+    """Apply rotation and flow angle transforms"""
     total_angle = np.radians(rot_deg + flow_deg)
     c, s = np.cos(total_angle), np.sin(total_angle)
     return c*x - s*y, s*x + c*y
 
-# Optimized function to compute velocities at arbitrary target points
 def compute_velocities_at_points(targets_x, targets_y, sources_x, sources_y, gammas, sigmas):
+    """Calculate velocities from vortices (NO image vortices, NO boundary enforcement)"""
     M = len(targets_x)
     if M == 0:
         return np.array([]), np.array([])
@@ -59,7 +64,7 @@ def compute_velocities_at_points(targets_x, targets_y, sources_x, sources_y, gam
     U = np.full(M, U_inf * np.cos(np.radians(flow_angle)))
     V = np.full(M, U_inf * np.sin(np.radians(flow_angle)))
     N = len(sources_x)
-    
+
     # Add contributions from all direct vortices
     for i in range(N):
         DX = targets_x - sources_x[i]
@@ -76,54 +81,42 @@ def compute_velocities_at_points(targets_x, targets_y, sources_x, sources_y, gam
         V_ind[mask] = V_theta[mask] * DX[mask] / R[mask]
         U += U_ind
         V += V_ind
-    
-    # Add contributions from all image vortices
-    for cyl in cylinders:
-        x_cyl, y_cyl = apply_transforms(cyl['x'], cyl['y'], rotation_angle, flow_angle)
-        x_rel = sources_x - x_cyl
-        y_rel = sources_y - y_cyl
-        r_sq = x_rel**2 + y_rel**2
-        mask_out = r_sq > a**2 + 1e-6
-        x_img = np.full(N, 0.0)
-        y_img = np.full(N, 0.0)
-        x_img[mask_out] = x_cyl + (a**2 * x_rel[mask_out]) / r_sq[mask_out]
-        y_img[mask_out] = y_cyl + (a**2 * y_rel[mask_out]) / r_sq[mask_out]
-        gamma_img = -gammas
-        sigma_img = sigmas
-        
-        for i in range(N):
-            if not mask_out[i]:
-                continue
-            DX = targets_x - x_img[i]
-            DY = targets_y - y_img[i]
-            R = np.sqrt(DX**2 + DY**2)
-            mask = R > 1e-6
-            EXP = np.zeros_like(R)
-            EXP[mask] = np.exp(-R[mask]**2 / sigma_img[i]**2)
-            V_theta = np.zeros_like(R)
-            V_theta[mask] = (gamma_img[i] / (2 * np.pi * R[mask])) * (1 - EXP[mask])
-            U_ind = np.zeros_like(R)
-            V_ind = np.zeros_like(R)
-            U_ind[mask] = -V_theta[mask] * DY[mask] / R[mask]
-            V_ind[mask] = V_theta[mask] * DX[mask] / R[mask]
-            U += U_ind
-            V += V_ind
-    
+
     return U, V
 
-# Shed vortex
 def shed_vortex(cyl, t, upper=True):
+    """Shed a vortex from cylinder separation point"""
     sign = 1 if upper else -1
-    gamma = -Gamma_mag if upper else Gamma_mag  # upper clockwise (neg), lower counter (pos)
+    gamma = -Gamma_mag if upper else Gamma_mag  # upper clockwise, lower counter
 
     theta = np.pi - sign * theta_sep
     x_local = cyl['x'] + a * np.cos(theta)
     y_local = cyl['y'] + a * np.sin(theta)
     x_shed, y_shed = apply_transforms(x_local, y_local, rotation_angle, flow_angle)
 
-    return {'x': x_shed, 'y': y_shed, 'gamma': gamma, 'sigma': sigma_0, 'birth_t': t, 'parent_cyl': cyl}
+    return {'x': x_shed, 'y': y_shed, 'gamma': gamma, 'sigma': sigma_0, 'birth_t': t}
 
-# Main simulation (optimized)
+def remove_internal_vortices(cylinders, vortices, rotation_angle, flow_angle):
+    """Remove vortices inside cylinders"""
+    filtered_vortices = []
+    tolerance = 0.9  # Remove only if clearly inside
+
+    for vortex in vortices:
+        inside_any = False
+        for cyl in cylinders:
+            x_cyl, y_cyl = apply_transforms(cyl['x'], cyl['y'], rotation_angle, flow_angle)
+            dx = vortex['x'] - x_cyl
+            dy = vortex['y'] - y_cyl
+            dist = np.sqrt(dx**2 + dy**2)
+            if dist < a * tolerance:
+                inside_any = True
+                break
+        if not inside_any:
+            filtered_vortices.append(vortex)
+
+    return filtered_vortices
+
+# Main simulation
 all_vortices = []
 time = 0.0
 shed_counters = [0 for _ in cylinders]
@@ -131,10 +124,12 @@ next_shed_times = [0.0 for _ in cylinders]
 measure_times, measure_ux, measure_uy, measure_vmag = [], [], [], []
 shed_times = []  # Track shedding times for visualization
 
-print("Starting simulation...")
+print("Starting simple vortex method simulation...")
+print("NO boundary enforcement - just natural shedding and advection")
 num_steps = int(total_time / dt)
+
 for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="step"):
-    # Shed new vortices
+    # 1. Shed new vortices
     for c_idx, cyl in enumerate(cylinders):
         if time >= next_shed_times[c_idx]:
             upper = (shed_counters[c_idx] % 2 == 0)
@@ -143,62 +138,58 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
             shed_counters[c_idx] += 1
             next_shed_times[c_idx] += shed_period
             shed_times.append(time)
-    
+
     N = len(all_vortices)
     if N == 0:
         time += dt
         continue
-    
-    # Vectorized sigma update
+
+    # 2. Update vortex core sizes (viscous diffusion)
     birth_times = np.array([v['birth_t'] for v in all_vortices])
     ages = time - birth_times
     sigmas = np.sqrt(sigma_0**2 + 4 * nu * ages)
     for i in range(N):
         all_vortices[i]['sigma'] = sigmas[i]
-    
-    # Prepare arrays for sources (fixed during step)
+
+    # 3. Prepare arrays for RK4
     sources_x = np.array([v['x'] for v in all_vortices])
     sources_y = np.array([v['y'] for v in all_vortices])
     gammas = np.array([v['gamma'] for v in all_vortices])
-    
-    # RK4 advection (vectorized per stage)
-    # Stage 1: at current positions
+
+    # 4. RK4 advection
     U1, V1 = compute_velocities_at_points(sources_x, sources_y, sources_x, sources_y, gammas, sigmas)
     k1x = dt * U1
     k1y = dt * V1
-    
-    # Stage 2: at mid positions
+
     mid_x = sources_x + 0.5 * k1x
     mid_y = sources_y + 0.5 * k1y
     U2, V2 = compute_velocities_at_points(mid_x, mid_y, sources_x, sources_y, gammas, sigmas)
     k2x = dt * U2
     k2y = dt * V2
-    
-    # Stage 3
+
     mid_x = sources_x + 0.5 * k2x
     mid_y = sources_y + 0.5 * k2y
     U3, V3 = compute_velocities_at_points(mid_x, mid_y, sources_x, sources_y, gammas, sigmas)
     k3x = dt * U3
     k3y = dt * V3
-    
-    # Stage 4
+
     end_x = sources_x + k3x
     end_y = sources_y + k3y
     U4, V4 = compute_velocities_at_points(end_x, end_y, sources_x, sources_y, gammas, sigmas)
     k4x = dt * U4
     k4y = dt * V4
-    
-    # Update positions
+
     new_x = sources_x + (k1x + 2*k2x + 2*k3x + k4x) / 6
     new_y = sources_y + (k1y + 2*k2y + 2*k3y + k4y) / 6
     for i in range(N):
         all_vortices[i]['x'] = new_x[i]
         all_vortices[i]['y'] = new_y[i]
 
-    # Remove vortices beyond downstream boundary
+    # 5. Remove vortices
     all_vortices = [v for v in all_vortices if v['x'] <= x_removal]
+    all_vortices = remove_internal_vortices(cylinders, all_vortices, rotation_angle, flow_angle)
 
-    # Measure velocity at probe point
+    # 6. Measure velocity at probe point
     ux, uy = compute_velocities_at_points(
         np.array([measure_point[0]]),
         np.array([measure_point[1]]),
@@ -211,12 +202,12 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
 
     time += dt
 
-print(f"Simulation complete. Total vortices: {len(all_vortices)}")
+print(f"Simulation complete. Total vortices in domain: {len(all_vortices)}")
 
-# Grid and velocity field computation (improved resolution)
-grid_size = 600  
+# Compute velocity field
+grid_size = 600
 x_min = -80.0
-x_max = 150.0  
+x_max = 150.0
 y_min = -50.0
 y_max = 50.0
 x = np.linspace(x_min, x_max, grid_size)
@@ -224,6 +215,7 @@ y = np.linspace(y_min, y_max, grid_size)
 X, Y = np.meshgrid(x, y)
 
 def compute_velocity_field(X, Y, vortices):
+    """Compute velocity field from vortices only"""
     U = np.full_like(X, U_inf * np.cos(np.radians(flow_angle)))
     V = np.full_like(X, U_inf * np.sin(np.radians(flow_angle)))
 
@@ -242,50 +234,23 @@ def compute_velocity_field(X, Y, vortices):
         V_ind[mask] = V_theta[mask] * DX[mask] / R[mask]
         U += U_ind
         V += V_ind
-        
-        for cyl in cylinders:
-            x_cyl, y_cyl = apply_transforms(cyl['x'], cyl['y'], rotation_angle, flow_angle)
-            x_rel = v['x'] - x_cyl
-            y_rel = v['y'] - y_cyl
-            r_sq = x_rel**2 + y_rel**2
-            if r_sq <= a**2 + 1e-6:
-                continue
-            x_img = x_cyl + (a**2 * x_rel) / r_sq
-            y_img = y_cyl + (a**2 * y_rel) / r_sq
-            gamma_img = -v['gamma']
-            sigma_img = v['sigma']
-            
-            DX_img = X - x_img
-            DY_img = Y - y_img
-            R_img = np.sqrt(DX_img**2 + DY_img**2)
-            mask_img = R_img > 1e-6
-            EXP_img = np.zeros_like(R_img)
-            EXP_img[mask_img] = np.exp(-R_img[mask_img]**2 / sigma_img**2)
-            V_theta_img = np.zeros_like(R_img)
-            V_theta_img[mask_img] = (gamma_img / (2 * np.pi * R_img[mask_img])) * (1 - EXP_img[mask_img])
-            U_img = np.zeros_like(R_img)
-            V_img = np.zeros_like(R_img)
-            U_img[mask_img] = -V_theta_img[mask_img] * DY_img[mask_img] / R_img[mask_img]
-            V_img[mask_img] = V_theta_img[mask_img] * DX_img[mask_img] / R_img[mask_img]
-            U += U_img
-            V += V_img
-    
+
     return U, V
 
 print("Computing velocity field...")
 U, V = compute_velocity_field(X, Y, all_vortices)
 vel_mag = np.sqrt(U**2 + V**2)
 
-# PLOT (improved resolution and clarity)
-fig, ax = plt.subplots(figsize=(16, 8), dpi=300)  # Larger figure with higher DPI
+# Visualization
+fig, ax = plt.subplots(figsize=(16, 8), dpi=300)
 
-contour = ax.contourf(X, Y, vel_mag, levels=100, cmap='viridis')  # More levels for detail
+contour = ax.contourf(X, Y, vel_mag, levels=100, cmap='viridis')
 plt.colorbar(contour, ax=ax, label='Velocity Magnitude [m/s]')
 
-skip = 4  # Show more vectors with higher resolution grid
+skip = 4
 ax.quiver(X[::skip, ::skip], Y[::skip, ::skip],
           U[::skip, ::skip], V[::skip, ::skip],
-          color='white', alpha=0.7, scale=200, width=0.0005)  # Smaller, finer arrows
+          color='white', alpha=0.7, scale=100, width=0.0005)
 
 for cyl in cylinders:
     x_cyl, y_cyl = apply_transforms(cyl['x'], cyl['y'], rotation_angle, flow_angle)
@@ -296,7 +261,7 @@ for cyl in cylinders:
 
 for v in all_vortices:
     color = 'ro' if v['gamma'] > 0 else 'bo'
-    ax.plot(v['x'], v['y'], color, markersize=2, alpha=0.4)  # Smaller markers for clarity
+    ax.plot(v['x'], v['y'], color, markersize=2, alpha=0.4)
 
 ax.plot(measure_point[0], measure_point[1], 'r*', markersize=12,
         markeredgewidth=1.5, markeredgecolor='black', label='CPS', zorder=15)
@@ -305,14 +270,15 @@ ax.set_xlim(x_min, x_max)
 ax.set_ylim(y_min, y_max)
 ax.set_xlabel('x [m]')
 ax.set_ylabel('y [m]')
-ax.set_title(f'4-Cylinder Dynamic Wake (D={D}m, Spacing={spacing}m, Re={Re}, Rotation={rotation_angle}°, Flow={flow_angle_metocean}°, t={total_time}s)')
+ax.set_title(f'Simple Vortex Wake (D={D}m, Re={Re}, t={total_time}s)\n'
+             f'NO boundary enforcement - for velocity amplification calculations')
 ax.set_aspect('equal')
 ax.grid(True, alpha=0.3)
-
 ax.legend(loc='upper right')
+
 plt.tight_layout()
-plt.savefig('4_cylinder_dynamic_wake.png', dpi=600, bbox_inches='tight')  # High-res output
-print("\nPlot saved to '4_cylinder_dynamic_wake.png' (high resolution)")
+plt.savefig('4_cylinder_simple_wake.png', dpi=600, bbox_inches='tight')
+print("\nPlot saved to '4_cylinder_simple_wake.png'")
 
 # Velocity time history plot
 print("Generating velocity measurement plot...")
@@ -336,7 +302,11 @@ for t_shed in shed_times:
     ax.axvline(t_shed, color='red', alpha=0.15, linewidth=0.5, linestyle='-')
 
 plt.tight_layout()
-plt.savefig('velocity_measurement_fast.png', dpi=150, bbox_inches='tight')
-print("Saved velocity_measurement_fast.png\n")
+plt.savefig('velocity_measurement_simple.png', dpi=150, bbox_inches='tight')
+print("Saved velocity_measurement_simple.png\n")
 
 print(f"Done! S/D = {spacing/D:.1f}")
+print("\nThis vortex wake field can be combined with:")
+print("  1. Potential flow (local cylinder effects)")
+print("  2. Global flow (terrain/hill effects)")
+print("  for total velocity amplification at probe locations")

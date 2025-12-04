@@ -35,12 +35,12 @@ eps_sq = (1e-6 * D_ref)**2
 
 sigma_0 = 0.1 * D_ref
 Gamma_shed = 2 * np.pi * St * U_inf * D_ref
-theta_sep = 70 * np.pi/180
+theta_sep = 80 * np.pi/180
 
 measure_point = (32.0, 5.0)
 
 dt = 0.005
-t_max = 200.0
+t_max = 300.0
 n_steps = int(t_max / dt)
 
 n_frames = 40
