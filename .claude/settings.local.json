@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python von_karman_simulator.py:*)",
+      "Bash(conda activate:*)",
+      "WebSearch",
+      "WebFetch(domain:royalsocietypublishing.org)",
+      "WebFetch(domain:thesis.library.caltech.edu)",
+      "WebFetch(domain:www.cambridge.org)",
+      "WebFetch(domain:en.wikipedia.org)",
+      "Bash(dir:*)",
+      "Bash(timeout 120 python:*)",
+      "Bash(python:*)",
+      "WebFetch(domain:people.csail.mit.edu)",
+      "WebFetch(domain:cse-lab.seas.harvard.edu)",
+      "WebFetch(domain:bpb-us-e1.wpmucdn.com)",
+      "WebFetch(domain:www.researchgate.net)",
+      "Bash(gh auth:*)",
+      "Bash(git config:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

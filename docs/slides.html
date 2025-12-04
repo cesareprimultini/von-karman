@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body class="col bg-surface center" style="width: 960px; height: 540px; padding: 40px;">
+  
+  <div style="width: 120px; height: 4px; background: var(--color-primary); margin-bottom: 28px;"></div>
+  
+  <h1 class="text-5xl text-center" style="color: var(--color-surface-foreground); margin-bottom: 14px;">
+    Von Kármán Vortex Street
+  </h1>
+  
+  <p class="text-2xl text-center" style="color: var(--color-primary); margin-bottom: 32px;">
+    Viscous Gaussian Vortex Blob Simulation
+  </p>
+  
+  <div style="background: var(--color-secondary); padding: 16px 28px; border-radius: 6px; border-left: 4px solid var(--color-primary);">
+    <p class="text-base text-center" style="color: var(--color-muted-foreground); margin: 0;">
+      Lamb-Oseen Vortices • Viscous Core Spreading • RK4 Time Integration
+    </p>
+  </div>
+  
+  <div style="width: 60px; height: 3px; background: var(--color-accent); margin-top: 36px;"></div>
+  
+  <p style="color: var(--color-muted-foreground); font-size: 10px; margin: 20px 0 0 0;">Draft Technical Presentation</p>
+  
+</body>
+</html>
+
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body class="col bg-surface" style="width: 960px; height: 540px; padding: 24px 32px;">
+  
+  <div class="fit">
+    <div style="border-bottom: 2px solid var(--color-primary); padding-bottom: 6px; margin-bottom: 10px;">
+      <h1 class="text-2xl" style="color: var(--color-surface-foreground); margin: 0;">
+        1. Classical Inviscid Model (von Kármán, 1911-12)
+      </h1>
+    </div>
+  </div>
+
+  <div class="fill-height row" style="gap: 16px;">
+    
+    <div class="col" style="width: 48%; gap: 6px;">
+      
+      <div style="background: var(--color-secondary); padding: 10px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 3px 0;">Point Vortex Representation</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">
+          Two infinite parallel rows of point singularities with alternating circulation ±Γ, staggered by half-wavelength.
+        </p>
+      </div>
+      
+      <div style="background: var(--color-secondary); padding: 10px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 3px 0;">Velocity Field (Singular)</p>
+        <p class="text-sm" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif; text-align: center;">
+          v(x) = Σi (Γi/2πri) × (x - xi)⊥/|x - xi|
+        </p>
+      </div>
+      
+      <div style="background: var(--color-muted); padding: 10px; border-radius: 6px; border-left: 3px solid var(--color-accent);">
+        <p class="text-xs" style="color: var(--color-accent); font-weight: 600; margin: 0 0 3px 0;">Stability Condition: h/ℓ = 0.281</p>
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0;">
+          h = transverse spacing, ℓ = streamwise wavelength
+        </p>
+      </div>
+      
+    </div>
+    
+    <div class="col" style="width: 48%; gap: 6px;">
+      
+      <p class="text-xs" style="color: var(--color-accent); font-weight: 600; margin: 0;">Limitations of Inviscid Model</p>
+      
+      <div style="background: var(--color-secondary); padding: 8px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">① Infinite vorticity at centers (singularity)</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">② No viscous diffusion — pure Euler equations</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">③ Predicts parallel rows (not observed)</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">④ No core growth mechanism</p>
+      </div>
+      
+      <div style="background: var(--color-secondary); padding: 8px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0; font-style: italic;">
+          Experimental efforts to verify von Kármán's spacing prediction yielded unsatisfactory results — Historical validation
+        </p>
+      </div>
+      
+      <div style="background: var(--color-secondary); padding: 8px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">
+          Reality: Vortex rows diverge downstream, cores have finite size and grow via viscous diffusion.
+        </p>
+      </div>
+      
+    </div>
+    
+  </div>
+
+  <div class="fit" style="margin-top: 8px;">
+    <p style="color: var(--color-muted-foreground); font-size: 9px; margin: 0;">Ref: Royal Society 1936</p>
+  </div>
+  
+</body>
+</html>
+
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body class="col bg-surface" style="width: 960px; height: 540px; padding: 24px 32px;">
+  
+  <div class="fit">
+    <div style="border-bottom: 2px solid var(--color-primary); padding-bottom: 6px; margin-bottom: 10px;">
+      <h1 class="text-2xl" style="color: var(--color-surface-foreground); margin: 0;">
+        2. Lamb-Oseen Vortex: Exact Navier-Stokes Solution
+      </h1>
+    </div>
+  </div>
+
+  <div class="fill-height row" style="gap: 16px;">
+    
+    <div class="col" style="width: 50%; gap: 8px;">
+      
+      <div style="background: var(--color-secondary); padding: 12px; border-radius: 6px; border-top: 3px solid var(--color-primary);">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 6px 0;">Vorticity Distribution (Gaussian)</p>
+        <p class="text-base" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif; text-align: center;">
+          ωz(r, t) = (Γ / 4πνt) · exp(−r² / 4νt)
+        </p>
+      </div>
+      
+      <div style="background: var(--color-secondary); padding: 12px; border-radius: 6px; border-top: 3px solid var(--color-primary);">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 6px 0;">Azimuthal Velocity Field</p>
+        <p class="text-base" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif; text-align: center;">
+          Vθ(r, σ) = (Γ / 2πr) · [1 − exp(−r² / σ²)]
+        </p>
+      </div>
+      
+      <div style="background: var(--color-muted); padding: 10px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0 0 3px 0;">Key Properties:</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">• No singularity: Vθ → 0 as r → 0</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">• Far-field: Vθ → Γ/(2πr) as r → ∞</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">• Circulation Γ conserved (exact N-S solution)</p>
+      </div>
+      
+    </div>
+    
+    <div class="col" style="width: 50%; gap: 8px;">
+      
+      <div style="background: var(--color-secondary); padding: 14px; border-radius: 6px; border: 2px solid var(--color-accent);">
+        <p class="text-xs" style="color: var(--color-accent); font-weight: 700; margin: 0 0 8px 0; text-transform: uppercase;">Core Radius Growth (Viscous Diffusion)</p>
+        <p class="text-xl" style="color: var(--color-surface-foreground); margin: 0 0 4px 0; font-family: Georgia, serif; text-align: center;">
+          σ²(t) = σ₀² + 4νt
+        </p>
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0; text-align: center;">
+          Spatial form: σ²(x) = σ₀² + 4νx / U∞
+        </p>
+      </div>
+      
+      <div style="background: var(--color-secondary); padding: 10px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 4px 0;">Dimensionless Form</p>
+        <p class="text-sm" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif; text-align: center;">
+          (σ/D)² = (σ₀/D)² + 4(x/D) / Re
+        </p>
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 4px 0 0 0; text-align: center;">
+          Re = U∞D / ν (Reynolds number)
+        </p>
+      </div>
+      
+      <div style="background: var(--color-muted); padding: 10px; border-radius: 6px; border-left: 3px solid var(--color-primary);">
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">
+          Physical Interpretation: Cores grow as σ ∝ √(x/Re) due to viscous diffusion — validated by experiments at high Re.
+        </p>
+      </div>
+      
+    </div>
+    
+  </div>
+
+  <div class="fit" style="margin-top: 6px;">
+    <p style="color: var(--color-muted-foreground); font-size: 9px; margin: 0;">Lamb, H. (1932) "Hydrodynamics" • Milne-Thomson (1968)</p>
+  </div>
+  
+</body>
+</html>
+
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body class="col bg-surface" style="width: 960px; height: 540px; padding: 24px 32px;">
+  
+  <div class="fit">
+    <div style="border-bottom: 2px solid var(--color-primary); padding-bottom: 6px; margin-bottom: 10px;">
+      <h1 class="text-2xl" style="color: var(--color-surface-foreground); margin: 0;">
+        3. Wake Width Spreading and Vortex Geometry
+      </h1>
+    </div>
+  </div>
+
+  <div class="fill-height row" style="gap: 16px;">
+    
+    <div class="col" style="width: 48%; gap: 8px;">
+      
+      <div style="background: var(--color-secondary); padding: 12px; border-radius: 6px; border-top: 3px solid var(--color-accent);">
+        <p class="text-xs" style="color: var(--color-accent); font-weight: 600; margin: 0 0 6px 0;">Linear Wake Spreading Model</p>
+        <p class="text-lg" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif; text-align: center;">
+          h(x) = h₀ · (1 + α · x/D)
+        </p>
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 6px 0 0 0; text-align: center;">
+          h₀ = initial spacing ≈ 0.281ℓ • α = spreading coefficient
+        </p>
+      </div>
+      
+      <div style="background: var(--color-muted); padding: 10px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 4px 0;">Reynolds Number Dependence</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">• Low Re ~ 100: α ≈ 0.03 – 0.05 (faster spreading)</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">• High Re ~ 1000: α ≈ 0.01 – 0.02 (slower spreading)</p>
+      </div>
+      
+      <div style="background: var(--color-secondary); padding: 10px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 4px 0;">Strouhal Number (Shedding Frequency)</p>
+        <p class="text-base" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif; text-align: center;">
+          St = f · D / U∞ ≈ 0.2
+        </p>
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 4px 0 0 0; text-align: center;">
+          Constant for 300 &lt; Re &lt; 10⁵
+        </p>
+      </div>
+      
+    </div>
+    
+    <div class="col" style="width: 52%; gap: 8px;">
+      
+      <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0;">Vortex Street Geometry (Diverging Rows)</p>
+      
+      <div style="background: var(--color-secondary); padding: 10px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0 0 4px 0;">Upper Row (+Γ):</p>
+        <p class="text-sm" style="color: var(--color-surface-foreground); margin: 0 0 2px 0; font-family: Georgia, serif;">
+          xk⁺ = k · ℓ
+        </p>
+        <p class="text-sm" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif;">
+          yk⁺ = +h₀/2 · (1 + α · xk/D)
+        </p>
+      </div>
+      
+      <div style="background: var(--color-secondary); padding: 10px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0 0 4px 0;">Lower Row (−Γ), staggered by ℓ/2:</p>
+        <p class="text-sm" style="color: var(--color-surface-foreground); margin: 0 0 2px 0; font-family: Georgia, serif;">
+          xk⁻ = ℓ/2 + k · ℓ
+        </p>
+        <p class="text-sm" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif;">
+          yk⁻ = −h₀/2 · (1 + α · xk/D)
+        </p>
+      </div>
+      
+      <div style="background: var(--color-muted); padding: 10px; border-radius: 6px; border: 1px solid var(--color-primary);">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 3px 0;">Circulation per Vortex</p>
+        <p class="text-base" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif; text-align: center;">
+          Γshed = 2π · St · U∞ · D
+        </p>
+      </div>
+      
+    </div>
+    
+  </div>
+
+  <div class="fit" style="margin-top: 6px;">
+    <p style="color: var(--color-muted-foreground); font-size: 9px; margin: 0;">Empirical validation: Wake grows linearly when width &lt; integral length scale</p>
+  </div>
+  
+</body>
+</html>
+
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body class="col bg-surface" style="width: 960px; height: 540px; padding: 24px 32px;">
+  
+  <div class="fit">
+    <div style="border-bottom: 2px solid var(--color-primary); padding-bottom: 6px; margin-bottom: 10px;">
+      <h1 class="text-2xl" style="color: var(--color-surface-foreground); margin: 0;">
+        4. Dynamic Vortex Advection (Time Integration)
+      </h1>
+    </div>
+  </div>
+
+  <div class="fill-height row" style="gap: 16px;">
+    
+    <div class="col" style="width: 52%; gap: 6px;">
+      
+      <div style="background: var(--color-secondary); padding: 10px; border-radius: 6px; border-left: 4px solid var(--color-accent);">
+        <p class="text-xs" style="color: var(--color-accent); font-weight: 700; margin: 0 0 6px 0;">Runge-Kutta 4th Order Integration</p>
+        <p class="text-sm" style="color: var(--color-surface-foreground); margin: 0 0 3px 0; font-family: Georgia, serif;">
+          xⁿ⁺¹ = xⁿ + (Δt/6)(k₁ + 2k₂ + 2k₃ + k₄)
+        </p>
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0; font-family: Courier New, monospace;">
+          k₁ = u(tⁿ, xⁿ) | k₂ = u(tⁿ+Δt/2, xⁿ+k₁Δt/2) | k₃ = u(tⁿ+Δt/2, xⁿ+k₂Δt/2) | k₄ = u(tⁿ+Δt, xⁿ+k₃Δt)
+        </p>
+      </div>
+      
+      <div style="background: var(--color-muted); padding: 8px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 3px 0;">Velocity at Vortex Position</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif;">
+          u(xi, t) = U∞ + Σj≠i uLO(xi − xj, σj(t))
+        </p>
+      </div>
+      
+      <div style="background: var(--color-secondary); padding: 8px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 3px 0;">Self-Induction Regularization</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">
+          Skip interaction if |xi − xj| &lt; ε · D (typical: ε = 0.01)
+        </p>
+      </div>
+      
+      <div style="background: var(--color-secondary); padding: 8px; border-radius: 6px; border-left: 3px solid var(--color-primary);">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 2px 0;">RK4 Advantages</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">
+          4th-order accuracy: O(Δt⁴) local error. Stable without implicit methods.
+        </p>
+      </div>
+      
+    </div>
+    
+    <div class="col" style="width: 48%; gap: 6px;">
+      
+      <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0;">Simulation Algorithm</p>
+      
+      <div style="background: var(--color-secondary); padding: 8px; border-radius: 6px;">
+        <p style="font-family: Courier New, monospace; font-size: 10px; color: var(--color-surface-foreground); margin: 0 0 2px 0;">for t = 0 to t_max:</p>
+        <p style="font-family: Courier New, monospace; font-size: 10px; color: var(--color-surface-foreground); margin: 0 0 2px 0;">  ① Shed vortex if t ≥ n·Tshed</p>
+        <p style="font-family: Courier New, monospace; font-size: 10px; color: var(--color-surface-foreground); margin: 0 0 2px 0;">  ② Advect all vortices (RK4)</p>
+        <p style="font-family: Courier New, monospace; font-size: 10px; color: var(--color-surface-foreground); margin: 0 0 2px 0;">  ③ Remove vortices outside domain</p>
+        <p style="font-family: Courier New, monospace; font-size: 10px; color: var(--color-surface-foreground); margin: 0 0 2px 0;">  ④ Sample velocity at probes</p>
+        <p style="font-family: Courier New, monospace; font-size: 10px; color: var(--color-surface-foreground); margin: 0;">  t += Δt</p>
+      </div>
+      
+      <div style="background: var(--color-muted); padding: 8px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-accent); font-weight: 600; margin: 0 0 3px 0;">Computational Complexity</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">• Per timestep: O(N²) for N vortices</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">• Total: O(nsteps · N̄²), N̄ ≈ 20-40 typical</p>
+      </div>
+      
+      <div style="background: var(--color-secondary); padding: 8px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0;">
+          Optimization: Fast Multipole Method O(N log N)
+        </p>
+      </div>
+      
+    </div>
+    
+  </div>
+
+  <div class="fit" style="margin-top: 6px;">
+    <p style="color: var(--color-muted-foreground); font-size: 9px; margin: 0;">Ref: Cottet and Koumoutsakos (2000) "Vortex Methods: Theory and Practice"</p>
+  </div>
+  
+</body>
+</html>
+
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body class="col bg-surface" style="width: 960px; height: 540px; padding: 24px 32px;">
+  
+  <div class="fit">
+    <div style="border-bottom: 2px solid var(--color-primary); padding-bottom: 6px; margin-bottom: 10px;">
+      <h1 class="text-2xl" style="color: var(--color-surface-foreground); margin: 0;">
+        5. Comparison: Blevins Model vs Lamb-Oseen Approach
+      </h1>
+    </div>
+  </div>
+
+  <div class="fill-height row" style="gap: 14px;">
+    
+    <div class="col" style="width: 48%; gap: 6px;">
+      
+      <div style="background: var(--color-muted); padding: 10px; border-radius: 6px; border-top: 4px solid #6c757d;">
+        <p class="text-sm" style="color: #adb5bd; font-weight: 700; margin: 0 0 6px 0;">BLEVINS (Empirical/Algebraic)</p>
+        
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0 0 4px 0;">Velocity Model:</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 6px 0; font-family: Georgia, serif; text-align: center;">
+          u(y,t) = û · sin(2πy/h) · cos(ωt − φ)
+        </p>
+        
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0 0 3px 0;">Approach:</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">• Sinusoidal approximation of wake velocity</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">• Fixed amplitude decay with distance</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">• No explicit vortex representation</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">• Engineering correlation-based</p>
+      </div>
+      
+      <div style="background: var(--color-secondary); padding: 8px; border-radius: 6px;">
+        <p class="text-xs" style="color: #6c757d; font-weight: 600; margin: 0 0 3px 0;">Blevins Pros/Cons</p>
+        <p class="text-xs" style="color: #4caf50; margin: 0 0 2px 0;">✓ Simple closed-form solution</p>
+        <p class="text-xs" style="color: #4caf50; margin: 0 0 2px 0;">✓ Fast to evaluate</p>
+        <p class="text-xs" style="color: #f44336; margin: 0 0 2px 0;">✗ No viscous physics</p>
+        <p class="text-xs" style="color: #f44336; margin: 0;">✗ Limited spatial validity</p>
+      </div>
+      
+    </div>
+    
+    <div class="col" style="width: 52%; gap: 6px;">
+      
+      <div style="background: var(--color-secondary); padding: 10px; border-radius: 6px; border-top: 4px solid var(--color-primary);">
+        <p class="text-sm" style="color: var(--color-primary); font-weight: 700; margin: 0 0 6px 0;">LAMB-OSEEN (First Principles)</p>
+        
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0 0 4px 0;">Velocity Model:</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 6px 0; font-family: Georgia, serif; text-align: center;">
+          Vθ = (Γ/2πr)[1 − exp(−r²/σ²(t))]
+        </p>
+        
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0 0 3px 0;">Approach:</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">• Exact N-S solution for diffusing vortex</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">• Time-dependent core growth σ(t)</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">• Superposition of discrete vortices</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">• Captures vortex interactions</p>
+      </div>
+      
+      <div style="background: var(--color-muted); padding: 8px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 3px 0;">Lamb-Oseen Pros/Cons</p>
+        <p class="text-xs" style="color: #4caf50; margin: 0 0 2px 0;">✓ Physics-based (exact N-S solution)</p>
+        <p class="text-xs" style="color: #4caf50; margin: 0 0 2px 0;">✓ Viscous diffusion included</p>
+        <p class="text-xs" style="color: #4caf50; margin: 0 0 2px 0;">✓ Validated against CFD/experiments</p>
+        <p class="text-xs" style="color: #ff9800; margin: 0;">○ Requires time integration O(N²)</p>
+      </div>
+      
+    </div>
+    
+  </div>
+  
+  <div class="fit" style="margin-top: 4px;">
+    <div style="background: var(--color-secondary); padding: 8px 12px; border-radius: 6px; border-left: 4px solid var(--color-accent);">
+      <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">
+        Key Difference: Blevins = empirical fit for engineering estimates; Lamb-Oseen = first-principles model for detailed wake physics.
+      </p>
+    </div>
+  </div>
+
+  <div class="fit" style="margin-top: 4px;">
+    <p style="color: var(--color-muted-foreground); font-size: 9px; margin: 0;">Blevins, R.D. "Flow-Induced Vibration" (2001)</p>
+  </div>
+  
+</body>
+</html>
+
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body class="col bg-surface" style="width: 960px; height: 540px; padding: 24px 32px;">
+  
+  <div class="fit">
+    <div style="border-bottom: 2px solid var(--color-primary); padding-bottom: 6px; margin-bottom: 10px;">
+      <h1 class="text-2xl" style="color: var(--color-surface-foreground); margin: 0;">
+        6. Numerical Challenges and Stability Criteria
+      </h1>
+    </div>
+  </div>
+
+  <div class="fill-height row" style="gap: 16px;">
+    
+    <div class="col" style="width: 50%; gap: 6px;">
+      
+      <p class="text-xs" style="color: var(--color-accent); font-weight: 600; margin: 0;">Critical Numerical Parameters</p>
+      
+      <div style="background: var(--color-secondary); padding: 8px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 3px 0;">Δt = 0.01 – 0.05 (constraint: Δt &lt; σ₀/U∞)</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 3px 0;">ε (cutoff) = 0.01D (constraint: ε ≪ σ₀)</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 3px 0;">xshed = 0.5 – 1.5D (wake formation length)</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 3px 0;">yshed = 0.4 – 0.6D (~ D/2 initial separation)</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">Γshed = 2π·St·U·D (St ≈ 0.2)</p>
+      </div>
+      
+      <div style="background: var(--color-muted); padding: 10px; border-radius: 6px; border: 2px solid var(--color-accent);">
+        <p class="text-xs" style="color: var(--color-accent); font-weight: 700; margin: 0 0 4px 0;">Timestep Stability (CFL-like)</p>
+        <p class="text-base" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif; text-align: center;">
+          Δt &lt; σ₀ / |u|max ≈ 0.1D / U∞
+        </p>
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 4px 0 0 0; text-align: center;">
+          For D=1, U=1: Δt &lt; 0.1, use Δt ≈ 0.02
+        </p>
+      </div>
+      
+    </div>
+    
+    <div class="col" style="width: 50%; gap: 6px;">
+      
+      <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0;">Validation Checks</p>
+      
+      <div style="background: var(--color-secondary); padding: 8px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 3px 0;">① Strouhal Number Recovery</p>
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0; font-family: Georgia, serif;">Stmeasured = fpeak·D/U∞ ≈ Stinput (within 5%)</p>
+      </div>
+      
+      <div style="background: var(--color-secondary); padding: 8px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 3px 0;">② Circulation Conservation</p>
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0; font-family: Georgia, serif;">Σ Γi ≈ 0 (alternating signs cancel)</p>
+      </div>
+      
+      <div style="background: var(--color-secondary); padding: 8px; border-radius: 6px;">
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 3px 0;">③ Core Growth Verification</p>
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0; font-family: Georgia, serif;">σ(t) = √(σ₀² + 4ν(t − tbirth))</p>
+      </div>
+      
+      <div style="background: var(--color-muted); padding: 8px; border-radius: 6px; border-left: 3px solid var(--color-accent);">
+        <p class="text-xs" style="color: var(--color-accent); font-weight: 600; margin: 0 0 3px 0;">Current Limitations</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">• 2D flow only (no spanwise variation)</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0 0 2px 0;">• Fixed separation points (not computed)</p>
+        <p class="text-xs" style="color: var(--color-surface-foreground); margin: 0;">• No vortex merging algorithm</p>
+      </div>
+      
+    </div>
+    
+  </div>
+
+  <div class="fit" style="margin-top: 6px;">
+    <p style="color: var(--color-muted-foreground); font-size: 9px; margin: 0;">Optimization: Fast Multipole Method O(N log N) — Greengard and Rokhlin (1987)</p>
+  </div>
+  
+</body>
+</html>
+
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body class="col bg-surface" style="width: 960px; height: 540px; padding: 24px 32px;">
+  
+  <div class="fit">
+    <div style="border-bottom: 2px solid var(--color-primary); padding-bottom: 6px; margin-bottom: 10px;">
+      <h1 class="text-2xl" style="color: var(--color-surface-foreground); margin: 0;">
+        7. Summary: Model Architecture
+      </h1>
+    </div>
+  </div>
+
+  <div class="fill-height col" style="gap: 10px;">
+    
+    <div class="row" style="gap: 10px;">
+      
+      <div style="flex: 1; background: var(--color-secondary); padding: 10px; border-radius: 6px; border-top: 3px solid var(--color-primary);">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 4px 0; text-transform: uppercase;">Velocity Kernel</p>
+        <p class="text-sm" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif; text-align: center;">
+          Vθ = (Γ/2πr)[1−exp(−r²/σ²)]
+        </p>
+      </div>
+      
+      <div style="flex: 1; background: var(--color-secondary); padding: 10px; border-radius: 6px; border-top: 3px solid var(--color-accent);">
+        <p class="text-xs" style="color: var(--color-accent); font-weight: 600; margin: 0 0 4px 0; text-transform: uppercase;">Core Growth</p>
+        <p class="text-sm" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif; text-align: center;">
+          σ² = σ₀² + 4νt
+        </p>
+      </div>
+      
+      <div style="flex: 1; background: var(--color-secondary); padding: 10px; border-radius: 6px; border-top: 3px solid #4caf50;">
+        <p class="text-xs" style="color: #4caf50; font-weight: 600; margin: 0 0 4px 0; text-transform: uppercase;">Wake Spreading</p>
+        <p class="text-sm" style="color: var(--color-surface-foreground); margin: 0; font-family: Georgia, serif; text-align: center;">
+          h(x) = h₀(1+αx/D)
+        </p>
+      </div>
+      
+    </div>
+    
+    <div style="background: var(--color-muted); padding: 12px; border-radius: 6px;">
+      <div class="row" style="justify-content: space-between; align-items: center;">
+        
+        <div style="text-align: center; flex: 1;">
+          <div style="background: var(--color-primary); padding: 6px 8px; border-radius: 4px;">
+            <p style="color: var(--color-primary-foreground); font-size: 9px; font-weight: 600; margin: 0;">VORTEX SHEDDING</p>
+          </div>
+          <p class="text-xs" style="color: var(--color-muted-foreground); margin: 3px 0 0 0;">f = St·U/D</p>
+        </div>
+        
+        <p style="color: var(--color-muted-foreground); font-size: 16px; margin: 0;">→</p>
+        
+        <div style="text-align: center; flex: 1;">
+          <div style="background: var(--color-accent); padding: 6px 8px; border-radius: 4px;">
+            <p style="color: white; font-size: 9px; font-weight: 600; margin: 0;">RK4 ADVECTION</p>
+          </div>
+          <p class="text-xs" style="color: var(--color-muted-foreground); margin: 3px 0 0 0;">dx/dt = u(x,t)</p>
+        </div>
+        
+        <p style="color: var(--color-muted-foreground); font-size: 16px; margin: 0;">→</p>
+        
+        <div style="text-align: center; flex: 1;">
+          <div style="background: #4caf50; padding: 6px 8px; border-radius: 4px;">
+            <p style="color: white; font-size: 9px; font-weight: 600; margin: 0;">VISCOUS DECAY</p>
+          </div>
+          <p class="text-xs" style="color: var(--color-muted-foreground); margin: 3px 0 0 0;">σ(t) grows</p>
+        </div>
+        
+        <p style="color: var(--color-muted-foreground); font-size: 16px; margin: 0;">→</p>
+        
+        <div style="text-align: center; flex: 1;">
+          <div style="background: #9c27b0; padding: 6px 8px; border-radius: 4px;">
+            <p style="color: white; font-size: 9px; font-weight: 600; margin: 0;">VELOCITY OUTPUT</p>
+          </div>
+          <p class="text-xs" style="color: var(--color-muted-foreground); margin: 3px 0 0 0;">Σ vortex + U∞</p>
+        </div>
+        
+      </div>
+    </div>
+    
+    <div class="row" style="gap: 10px;">
+      
+      <div style="flex: 1; background: var(--color-secondary); padding: 8px; border-radius: 6px; border-left: 3px solid var(--color-primary);">
+        <p class="text-xs" style="color: var(--color-primary); font-weight: 600; margin: 0 0 2px 0;">Algebraic Simplicity</p>
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0;">No PDEs — closed-form velocity</p>
+      </div>
+      
+      <div style="flex: 1; background: var(--color-secondary); padding: 8px; border-radius: 6px; border-left: 3px solid var(--color-accent);">
+        <p class="text-xs" style="color: var(--color-accent); font-weight: 600; margin: 0 0 2px 0;">Physical Realism</p>
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0;">Exact N-S with viscous diffusion</p>
+      </div>
+      
+      <div style="flex: 1; background: var(--color-secondary); padding: 8px; border-radius: 6px; border-left: 3px solid #4caf50;">
+        <p class="text-xs" style="color: #4caf50; font-weight: 600; margin: 0 0 2px 0;">Validation</p>
+        <p class="text-xs" style="color: var(--color-muted-foreground); margin: 0;">St, Γ conservation, σ(t) verified</p>
+      </div>
+      
+    </div>
+    
+  </div>
+
+  <div class="fit" style="margin-top: 6px;">
+    <p style="color: var(--color-muted-foreground); font-size: 9px; margin: 0;">Implementation: von_karman_simulator.py — Static + Dynamic dual approach</p>
+  </div>
+  
+</body>
+</html>
