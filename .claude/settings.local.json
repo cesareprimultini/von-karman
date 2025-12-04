@@ -22,7 +22,9 @@
       "Bash(git commit:*)",
       "Bash(gh repo create:*)",
       "WebFetch(domain:ntrs.nasa.gov)",
-      "WebFetch(domain:farside.ph.utexas.edu)"
+      "WebFetch(domain:farside.ph.utexas.edu)",
+      "WebFetch(domain:web.mit.edu)",
+      "WebFetch(domain:open.oregonstate.education)"
     ],
     "deny": [],
     "ask": []

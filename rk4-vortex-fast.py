@@ -12,10 +12,13 @@ Re = 100.0        # Reynolds number
 St = 0.2          # Strouhal number
 nu = U_inf * D / Re  # Kinematic viscosity
 
-# Simulation parameters 
+# Simulation parameters
 dt = 0.03         # Time step (must be < sigma_0 / U_max ~0.5 for stability)
 total_time = 300.0  # Total simulation time (adjust for longer wakes)
 shed_period = D / (St * U_inf)  # Shedding period T_shed
+
+# Downstream vortex removal boundary (to prevent unbounded accumulation)
+x_removal = 150.0  # Remove vortices beyond this x-coordinate
 
 # Vortex parameters 
 sigma_0 = 0.1 * D
@@ -185,15 +188,18 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
     for i in range(N):
         all_vortices[i]['x'] = new_x[i]
         all_vortices[i]['y'] = new_y[i]
-    
+
+    # Remove vortices beyond downstream boundary
+    all_vortices = [v for v in all_vortices if v['x'] <= x_removal]
+
     time += dt
 
 print(f"Simulation complete. Total vortices: {len(all_vortices)}")
 
 # Grid and velocity field computation (improved resolution)
-grid_size = 400  # Increased from 200 for higher resolution
-x_min = -50.0
-x_max = 150.0  # Adjust based on total_time * U_inf
+grid_size = 600  
+x_min = -80.0
+x_max = 150.0  
 y_min = -50.0
 y_max = 50.0
 x = np.linspace(x_min, x_max, grid_size)
@@ -259,10 +265,10 @@ fig, ax = plt.subplots(figsize=(16, 8), dpi=300)  # Larger figure with higher DP
 contour = ax.contourf(X, Y, vel_mag, levels=100, cmap='viridis')  # More levels for detail
 plt.colorbar(contour, ax=ax, label='Velocity Magnitude [m/s]')
 
-skip = 6  # Show more vectors with higher resolution grid
+skip = 4  # Show more vectors with higher resolution grid
 ax.quiver(X[::skip, ::skip], Y[::skip, ::skip],
           U[::skip, ::skip], V[::skip, ::skip],
-          color='white', alpha=0.7, scale=40, width=0.0015)  # Smaller, finer arrows
+          color='white', alpha=0.7, scale=100, width=0.0005)  # Smaller, finer arrows
 
 for cyl in cylinders:
     x_cyl, y_cyl = apply_transforms(cyl['x'], cyl['y'], rotation_angle, flow_angle)
