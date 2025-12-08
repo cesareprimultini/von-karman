@@ -10,41 +10,206 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from tqdm import tqdm
 
+# ==============================================================================
+# TURBULENCE MODELING FUNCTIONS
+# ==============================================================================
+
+def get_strouhal_number(Re):
+    """
+    Strouhal number as function of Reynolds number for circular cylinder
+
+    Based on experimental data:
+    - Roshko (1961): St ≈ 0.212(1 - 21.2/Re) for Re < 300
+    - Norberg (2003): Comprehensive compilation for Re = 47 to 10^7
+    - Schewe (1983): Critical/supercritical transition data
+
+    Args:
+        Re: Reynolds number
+
+    Returns:
+        St: Strouhal number (dimensionless shedding frequency)
+
+    References:
+        - Norberg, C. (2003). J. Fluids Structures, 17(1), 57-96
+        - Roshko, A. (1961). J. Fluid Mech., 10(3), 345-356
+        - Schewe, G. (1983). J. Fluid Mech., 133, 265-285
+    """
+    if Re < 47:
+        return 0.0  # No vortex shedding
+    elif Re < 300:
+        # Laminar regime (Roshko 1961)
+        return 0.212 * (1 - 21.2 / Re)
+    elif Re < 2e5:
+        # Subcritical regime: relatively constant
+        return 0.20
+    elif Re < 3.5e6:
+        # Critical/supercritical: drag crisis causes increase
+        log_Re = np.log10(Re)
+        # Linear interpolation from 0.20 at Re=2e5 to 0.28 at Re=3.5e6
+        return 0.20 + 0.06 * (log_Re - 5.3)
+    else:
+        # Transcritical regime: stabilizes at higher value
+        return 0.30
+
+
+def compute_eddy_viscosity_field(x, y, D, U_inf, Re):
+    """
+    Spatially-varying eddy viscosity for turbulent cylinder wake
+
+    Uses simplified mixing length model:
+        ν_t(x,y) = C_eddy · U_inf · D · f_wake(x,y,Re)
+
+    where f_wake captures wake profile and downstream decay
+
+    Args:
+        x, y: Position coordinates [m]
+        D: Cylinder diameter [m]
+        U_inf: Freestream velocity [m/s]
+        Re: Reynolds number
+
+    Returns:
+        nu_effective: Total effective viscosity (molecular + turbulent) [m²/s]
+
+    Physical basis:
+        - Mixing length: l_mix ≈ 0.1D in near wake
+        - Velocity gradient: |dU/dy| ~ U_inf/D
+        - Eddy viscosity: ν_t ~ l_mix² |dU/dy| ~ 0.01·U_inf·D
+    """
+    # Turbulent viscosity coefficient (calibrated from experiments)
+    if Re < 1000:
+        C_eddy = 0.01  # Minimal turbulent contribution
+    elif Re < 1e5:
+        # Gradual increase in subcritical regime
+        C_eddy = 0.02 + 0.01 * np.log10(Re / 1000)
+    else:
+        # High-Re asymptote (supercritical/transcritical)
+        C_eddy = 0.10
+
+    # Normalized coordinates
+    x_norm = x / D
+    y_norm = y / D
+
+    # Wake profile: Gaussian in transverse direction
+    sigma_wake = 0.5 + 0.1 * x_norm  # Wake width grows linearly
+    f_transverse = np.exp(-(y_norm**2) / (2 * sigma_wake**2))
+
+    # Exponential decay in streamwise direction
+    f_streamwise = np.exp(-x_norm / 20.0)  # Decays over ~20 diameters
+
+    # Combined wake function
+    f_wake = f_transverse * f_streamwise
+
+    # Total effective viscosity (molecular + turbulent)
+    nu_molecular = U_inf * D / Re
+    nu_turbulent = C_eddy * U_inf * D * f_wake
+
+    return nu_molecular + nu_turbulent
+
+
+def shed_vortex_with_turbulence(cyl, t, upper, Re, U_inf, D_ref, Gamma_mag, sigma_0,
+                                 rotation_angle, flow_angle, theta_sep, enable_stochastic=True):
+    """
+    Shed vortex with optional turbulent fluctuations
+
+    For high Re (> 1000), adds random perturbations to:
+    - Circulation strength (±10-20%)
+    - Separation angle (±5 degrees)
+
+    Args:
+        cyl: Cylinder dictionary with 'x', 'y', 'D'
+        t: Current time [s]
+        upper: True for upper vortex (clockwise), False for lower (counter-clockwise)
+        Re: Reynolds number
+        U_inf: Freestream velocity [m/s]
+        D_ref: Reference diameter [m]
+        Gamma_mag: Base circulation magnitude [m²/s]
+        sigma_0: Initial core radius [m]
+        rotation_angle: Cluster rotation [degrees]
+        flow_angle: Flow direction [degrees]
+        theta_sep: Base separation angle [radians]
+        enable_stochastic: Enable turbulent fluctuations
+
+    Returns:
+        dict: Vortex properties {'x', 'y', 'gamma', 'sigma', 'birth_t'}
+    """
+    sign = 1 if upper else -1
+    gamma_base = -Gamma_mag if upper else Gamma_mag
+
+    # Add turbulent fluctuation to circulation (for high Re)
+    if enable_stochastic and Re > 1000:
+        # Fluctuation strength increases with log(Re)
+        fluctuation_level = 0.10 * np.log10(Re / 1000)
+        fluctuation_level = min(fluctuation_level, 0.20)  # Cap at 20%
+
+        # Random Gaussian perturbation
+        gamma = gamma_base * (1 + np.random.normal(0, fluctuation_level))
+    else:
+        gamma = gamma_base
+
+    # Compute separation angle with optional randomness
+    if enable_stochastic and Re > 1000:
+        theta_sep_perturbed = theta_sep + np.random.normal(0, np.radians(5))
+    else:
+        theta_sep_perturbed = theta_sep
+
+    # Shedding location on cylinder surface
+    theta = np.pi - sign * theta_sep_perturbed
+    a = cyl['D'] / 2
+    x_local = cyl['x'] + a * np.cos(theta)
+    y_local = cyl['y'] + a * np.sin(theta)
+
+    # Apply rotation and flow angle transforms
+    x_shed, y_shed = apply_transforms(x_local, y_local, rotation_angle, flow_angle)
+
+    return {'x': x_shed, 'y': y_shed, 'gamma': gamma, 'sigma': sigma_0, 'birth_t': t}
+
+# ==============================================================================
+
 # PARAMETERS
 D = 4.88           # Cylinder diameter [m]
-a = D / 2         # Radius
 spacing = 40.0    # Center-to-center spacing [m]
-U_inf = 1.0       # Freestream velocity [m/s]
-Re = 100.0        # Reynolds number
-St = 0.2          # Strouhal number
-nu = U_inf * D / Re  # Kinematic viscosity
+U_inf = 1.5       # Freestream velocity [m/s]
+Re = 100.0        # Reynolds number (100 = laminar, 6.7e6 = transcritical offshore)
+St = get_strouhal_number(Re)  # Strouhal number (Re-dependent)
+
+# Turbulence modeling flags
+enable_eddy_viscosity = (Re > 1000)  # Enable turbulent diffusion for Re > 1000
+enable_stochastic_shedding = (Re > 1000)  # Enable random fluctuations for Re > 1000
+enable_core_saturation = (Re > 1000)  # Limit max core size for Re > 1000
+sigma_max_factor = 0.5  # Maximum core size = sigma_max_factor * D_ref
 
 # Simulation parameters
 dt = 0.03         # Time step
 total_time = 300.0  # Total simulation time
-shed_period = D / (St * U_inf)  # Shedding period T_shed
 
 # Downstream vortex removal boundary
 x_removal = 150.0  # Remove vortices beyond this x-coordinate
 
-# Vortex parameters
-sigma_0 = 0.1 * D
-Gamma_mag = 2.0 * np.pi * St * U_inf * D  # |Gamma| with C_gamma = 2*pi
-theta_sep = np.radians(80)   # Separation angle ~80 deg from rear
-
 # Rotation and flow angles
-rotation_angle = 30.0   # Cylinder cluster rotation [degrees]
+rotation_angle = 0.0   # Cylinder cluster rotation [degrees] (use 30.0 for multi-cylinder)
 flow_angle_metocean = 270.0  # Flow direction [degrees]
 flow_angle = 270.0 - flow_angle_metocean
 
-# Cylinders
+# Cylinders - easily configurable
 s = spacing / 2.0
+# cylinders = [
+#     {'x': -s, 'y': +s, 'D': D},
+#     {'x': +s, 'y': +s, 'D': D},
+#     {'x': -s, 'y': -s, 'D': D},
+#     {'x': +s, 'y': -s, 'D': D},
+# ]
+
 cylinders = [
-    {'x': -s, 'y': +s},
-    {'x': +s, 'y': +s},
-    {'x': -s, 'y': -s},
-    {'x': +s, 'y': -s},
+    {'x': 0.0, 'y': 0.0, 'D': D},
 ]
+
+# Reference diameter and derived parameters
+D_ref = max(cyl['D'] for cyl in cylinders)
+nu = U_inf * D_ref / Re  # Kinematic viscosity
+shed_period = D_ref / (St * U_inf)  # Shedding period T_shed
+sigma_0 = 0.1 * D_ref
+Gamma_mag = 2.0 * np.pi * St * U_inf * D_ref  # |Gamma| with C_gamma = 2*pi
+theta_sep = np.radians(80)   # Separation angle ~80 deg from rear
 
 # Measurement probe location
 measure_point = (32.0, 5.0)
@@ -90,6 +255,7 @@ def shed_vortex(cyl, t, upper=True):
     gamma = -Gamma_mag if upper else Gamma_mag  # upper clockwise, lower counter
 
     theta = np.pi - sign * theta_sep
+    a = cyl['D'] / 2
     x_local = cyl['x'] + a * np.cos(theta)
     y_local = cyl['y'] + a * np.sin(theta)
     x_shed, y_shed = apply_transforms(x_local, y_local, rotation_angle, flow_angle)
@@ -108,6 +274,7 @@ def remove_internal_vortices(cylinders, vortices, rotation_angle, flow_angle):
             dx = vortex['x'] - x_cyl
             dy = vortex['y'] - y_cyl
             dist = np.sqrt(dx**2 + dy**2)
+            a = cyl['D'] / 2
             if dist < a * tolerance:
                 inside_any = True
                 break
@@ -133,7 +300,11 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
     for c_idx, cyl in enumerate(cylinders):
         if time >= next_shed_times[c_idx]:
             upper = (shed_counters[c_idx] % 2 == 0)
-            new_vortex = shed_vortex(cyl, time, upper=upper)
+            # Use turbulence-enabled shedding function
+            new_vortex = shed_vortex_with_turbulence(
+                cyl, time, upper, Re, U_inf, D_ref, Gamma_mag, sigma_0,
+                rotation_angle, flow_angle, theta_sep, enable_stochastic=enable_stochastic_shedding
+            )
             all_vortices.append(new_vortex)
             shed_counters[c_idx] += 1
             next_shed_times[c_idx] += shed_period
@@ -144,17 +315,36 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
         time += dt
         continue
 
-    # 2. Update vortex core sizes (viscous diffusion)
+    # 2. Update vortex core sizes (viscous diffusion with optional turbulence)
     birth_times = np.array([v['birth_t'] for v in all_vortices])
     ages = time - birth_times
-    sigmas = np.sqrt(sigma_0**2 + 4 * nu * ages)
-    for i in range(N):
-        all_vortices[i]['sigma'] = sigmas[i]
+
+    if enable_eddy_viscosity:
+        # Compute spatially-varying effective viscosity for each vortex
+        for i in range(N):
+            x_vortex = all_vortices[i]['x']
+            y_vortex = all_vortices[i]['y']
+            nu_eff = compute_eddy_viscosity_field(x_vortex, y_vortex, D_ref, U_inf, Re)
+            age = ages[i]
+            sigma_new = np.sqrt(sigma_0**2 + 4 * nu_eff * age)
+
+            # Apply core saturation if enabled
+            if enable_core_saturation:
+                sigma_max = sigma_max_factor * D_ref
+                sigma_new = min(sigma_new, sigma_max)
+
+            all_vortices[i]['sigma'] = sigma_new
+    else:
+        # Standard laminar diffusion (molecular viscosity only)
+        sigmas_temp = np.sqrt(sigma_0**2 + 4 * nu * ages)
+        for i in range(N):
+            all_vortices[i]['sigma'] = sigmas_temp[i]
 
     # 3. Prepare arrays for RK4
     sources_x = np.array([v['x'] for v in all_vortices])
     sources_y = np.array([v['y'] for v in all_vortices])
     gammas = np.array([v['gamma'] for v in all_vortices])
+    sigmas = np.array([v['sigma'] for v in all_vortices])  # Extract updated sigmas
 
     # 4. RK4 advection
     U1, V1 = compute_velocities_at_points(sources_x, sources_y, sources_x, sources_y, gammas, sigmas)
@@ -254,7 +444,7 @@ ax.quiver(X[::skip, ::skip], Y[::skip, ::skip],
 
 for cyl in cylinders:
     x_cyl, y_cyl = apply_transforms(cyl['x'], cyl['y'], rotation_angle, flow_angle)
-    circle = Circle((x_cyl, y_cyl), D/2,
+    circle = Circle((x_cyl, y_cyl), cyl['D']/2,
                     color='gray', fill=True, zorder=10,
                     edgecolor='black', linewidth=2)
     ax.add_patch(circle)
@@ -270,7 +460,7 @@ ax.set_xlim(x_min, x_max)
 ax.set_ylim(y_min, y_max)
 ax.set_xlabel('x [m]')
 ax.set_ylabel('y [m]')
-ax.set_title(f'Simple Vortex Wake (D={D}m, Re={Re}, t={total_time}s)\n'
+ax.set_title(f'Simple Vortex Wake (D={D_ref}m, Re={Re}, t={total_time}s)\n'
              f'NO boundary enforcement - for velocity amplification calculations')
 ax.set_aspect('equal')
 ax.grid(True, alpha=0.3)
@@ -305,7 +495,7 @@ plt.tight_layout()
 plt.savefig('velocity_measurement_simple.png', dpi=150, bbox_inches='tight')
 print("Saved velocity_measurement_simple.png\n")
 
-print(f"Done! S/D = {spacing/D:.1f}")
+print(f"Done! S/D = {spacing/D_ref:.1f}")
 print("\nThis vortex wake field can be combined with:")
 print("  1. Potential flow (local cylinder effects)")
 print("  2. Global flow (terrain/hill effects)")

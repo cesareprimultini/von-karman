@@ -24,7 +24,9 @@
       "WebFetch(domain:ntrs.nasa.gov)",
       "WebFetch(domain:farside.ph.utexas.edu)",
       "WebFetch(domain:web.mit.edu)",
-      "WebFetch(domain:open.oregonstate.education)"
+      "WebFetch(domain:open.oregonstate.education)",
+      "Bash(timeout 600 python:*)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []
