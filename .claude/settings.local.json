@@ -26,7 +26,9 @@
       "WebFetch(domain:web.mit.edu)",
       "WebFetch(domain:open.oregonstate.education)",
       "Bash(timeout 600 python:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "WebFetch(domain:authors.library.caltech.edu)",
+      "WebFetch(domain:www.scholarpedia.org)"
     ],
     "deny": [],
     "ask": []
