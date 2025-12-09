@@ -27,7 +27,7 @@ total_time = 300.0  # Total simulation time
 x_removal = 250.0  # Remove vortices beyond this x-coordinate
 
 # Rotation and flow angles
-rotation_angle = 30.0   # Cylinder cluster rotation [degrees] (use 0.0 for one cylinder else fucks up)
+rotation_angle = 30.0   # Cylinder cluster rotation [degrees]
 flow_angle_metocean = 270.0  # Flow direction [degrees]
 flow_angle = 270.0 - flow_angle_metocean
 
@@ -156,14 +156,21 @@ def shed_vortex_with_turbulence(cyl, t, upper, Re, U_inf, D_ref, Gamma_mag, sigm
     else:
         theta_sep_perturbed = theta_sep
 
-    # Shedding location on cylinder surface
-    theta = np.pi - sign * theta_sep_perturbed
-    a = cyl['D'] / 2
-    x_local = cyl['x'] + a * np.cos(theta)
-    y_local = cyl['y'] + a * np.sin(theta)
+    # Transform cylinder center to global coordinates first
+    x_cyl_global, y_cyl_global = apply_transforms(cyl['x'], cyl['y'], rotation_angle, flow_angle)
 
-    # Apply rotation and flow angle transforms
-    x_shed, y_shed = apply_transforms(x_local, y_local, rotation_angle, flow_angle)
+    # Calculate shedding angle in GLOBAL coordinates relative to flow direction
+    # The rear stagnation point faces into the flow (flow_angle + π)
+    flow_direction_rad = np.radians(flow_angle)
+    rear_angle = flow_direction_rad + np.pi
+
+    # Vortices shed at theta_sep from the rear stagnation point
+    theta = rear_angle - sign * theta_sep_perturbed
+
+    # Shedding position in global coordinates
+    a = cyl['D'] / 2
+    x_shed = x_cyl_global + a * np.cos(theta)
+    y_shed = y_cyl_global + a * np.sin(theta)
 
     return {
         'x': x_shed,
@@ -215,11 +222,18 @@ def shed_vortex(cyl, t, upper=True):
     sign = 1 if upper else -1
     gamma = -Gamma_mag if upper else Gamma_mag  # upper clockwise, lower counter
 
-    theta = np.pi - sign * theta_sep
+    # Transform cylinder center to global coordinates first
+    x_cyl_global, y_cyl_global = apply_transforms(cyl['x'], cyl['y'], rotation_angle, flow_angle)
+
+    # Calculate shedding angle in GLOBAL coordinates relative to flow direction
+    flow_direction_rad = np.radians(flow_angle)
+    rear_angle = flow_direction_rad + np.pi
+    theta = rear_angle - sign * theta_sep
+
+    # Shedding position in global coordinates
     a = cyl['D'] / 2
-    x_local = cyl['x'] + a * np.cos(theta)
-    y_local = cyl['y'] + a * np.sin(theta)
-    x_shed, y_shed = apply_transforms(x_local, y_local, rotation_angle, flow_angle)
+    x_shed = x_cyl_global + a * np.cos(theta)
+    y_shed = y_cyl_global + a * np.sin(theta)
 
     return {
         'x': x_shed,
@@ -351,7 +365,7 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
 
     # 6. Remove vortices
     all_vortices = [v for v in all_vortices if v['x'] <= x_removal]
-    all_vortices = remove_internal_vortices(cylinders, all_vortices, rotation_angle, flow_angle)
+    # all_vortices = remove_internal_vortices(cylinders, all_vortices, rotation_angle, flow_angle)  # Commented out - treat cylinders as transparent
 
     # 7. Measure velocity at probe point
     ux, uy = compute_velocities_at_points(
