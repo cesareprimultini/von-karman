@@ -10,39 +10,39 @@ from tqdm import tqdm
 # PARAMETERS
 D = 4.88           # Cylinder diameter [m]
 spacing = 40.0    # Center-to-center spacing [m]
-U_inf = 1.5       # Freestream velocity [m/s]
-Re = 100.0        # Reynolds number (100 = laminar, 6.7e6 = transcritical offshore)
+U_inf = 1.0       # Freestream velocity [m/s]
+Re = 1000000.0        # Reynolds number (100 = laminar, 6.7e6 = transcritical offshore)
 
 # Turbulence modeling flags
 enable_eddy_viscosity = (Re > 1000)  # Enable turbulent diffusion for Re > 1000
 enable_stochastic_shedding = (Re > 1000)  # Enable random fluctuations for Re > 1000
 enable_core_saturation = (Re > 1000)  # Limit max core size for Re > 1000
-sigma_max_factor = 0.5  # Maximum core size = sigma_max_factor * D_ref
+sigma_max_factor = 0.5  # Maximum core size = sigma_max_factor * D_ref (RECHECK THIS VALUE)
 
 # Simulation parameters
-dt = 0.03         # Time step
+dt = 0.01         # Time step
 total_time = 300.0  # Total simulation time
 
 # Downstream vortex removal boundary
-x_removal = 150.0  # Remove vortices beyond this x-coordinate
+x_removal = 250.0  # Remove vortices beyond this x-coordinate
 
 # Rotation and flow angles
-rotation_angle = 0.0   # Cylinder cluster rotation [degrees] (use 30.0 for multi-cylinder)
+rotation_angle = 30.0   # Cylinder cluster rotation [degrees] (use 0.0 for one cylinder else fucks up)
 flow_angle_metocean = 270.0  # Flow direction [degrees]
 flow_angle = 270.0 - flow_angle_metocean
 
 # Cylinders - easily configurable
 s = spacing / 2.0
-# cylinders = [
-#     {'x': -s, 'y': +s, 'D': D},
-#     {'x': +s, 'y': +s, 'D': D},
-#     {'x': -s, 'y': -s, 'D': D},
-#     {'x': +s, 'y': -s, 'D': D},
-# ]
-
 cylinders = [
-    {'x': 0.0, 'y': 0.0, 'D': D},
+    {'x': -s, 'y': +s, 'D': D},
+    {'x': +s, 'y': +s, 'D': D},
+    {'x': -s, 'y': -s, 'D': D},
+    {'x': +s, 'y': -s, 'D': D},
 ]
+
+# cylinders = [
+#     {'x': 0.0, 'y': 0.0, 'D': D},
+# ]
 
 # Reference diameter and derived parameters
 D_ref = max(cyl['D'] for cyl in cylinders)
@@ -261,7 +261,6 @@ measure_times, measure_ux, measure_uy, measure_vmag = [], [], [], []
 shed_times = []  # Track shedding times for visualization
 
 print("Starting simple vortex method simulation...")
-print("NO boundary enforcement - just natural shedding and advection")
 num_steps = int(total_time / dt)
 
 for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="step"):
@@ -435,15 +434,14 @@ ax.set_xlim(x_min, x_max)
 ax.set_ylim(y_min, y_max)
 ax.set_xlabel('x [m]')
 ax.set_ylabel('y [m]')
-ax.set_title(f'Simple Vortex Wake (D={D_ref}m, Re={Re}, t={total_time}s)\n'
-             f'NO boundary enforcement - for velocity amplification calculations')
+ax.set_title(f'Simple Vortex Wake (D={D_ref}m, Re={Re}, t={total_time}s)\n')
 ax.set_aspect('equal')
 ax.grid(True, alpha=0.3)
 ax.legend(loc='upper right')
 
 plt.tight_layout()
-plt.savefig('4_cylinder_simple_wake.png', dpi=600, bbox_inches='tight')
-print("\nPlot saved to '4_cylinder_simple_wake.png'")
+plt.savefig('cylinder_wake.png', dpi=600, bbox_inches='tight')
+print("\nPlot saved to 'cylinder_wake.png'")
 
 # Velocity time history plot
 print("Generating velocity measurement plot...")
