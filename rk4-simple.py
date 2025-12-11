@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from tqdm import tqdm
 from scipy.interpolate import interp1d
+from numba import njit, prange
 
 
 class VelocityProfile:
@@ -388,6 +389,61 @@ def apply_transforms(x, y, rot_deg, flow_deg):
     c, s = np.cos(total_angle), np.sin(total_angle)
     return c*x - s*y, s*x + c*y
 
+
+@njit(parallel=True, fastmath=True)
+def compute_velocities_numba(targets_x, targets_y, sources_x, sources_y, gammas, sigmas, U_inf_x, U_inf_y):
+    """
+    Numba-optimized velocity computation kernel.
+
+    Parameters
+    ----------
+    targets_x, targets_y : np.ndarray
+        Target point coordinates [m]
+    sources_x, sources_y : np.ndarray
+        Vortex positions [m]
+    gammas : np.ndarray
+        Vortex circulations [m²/s]
+    sigmas : np.ndarray
+        Vortex core sizes [m]
+    U_inf_x, U_inf_y : float
+        Freestream velocity components [m/s]
+
+    Returns
+    -------
+    U, V : np.ndarray
+        Velocity components [m/s]
+    """
+    M = len(targets_x)
+    N = len(sources_x)
+    U = np.empty(M, dtype=np.float64)
+    V = np.empty(M, dtype=np.float64)
+
+    # Parallel loop over target points
+    for j in prange(M):
+        u_total = U_inf_x
+        v_total = U_inf_y
+
+        # Loop over all vortices
+        for i in range(N):
+            DX = targets_x[j] - sources_x[i]
+            DY = targets_y[j] - sources_y[i]
+            R_sq = DX * DX + DY * DY
+
+            if R_sq > 1e-12:  # Avoid singularity
+                R = np.sqrt(R_sq)
+                sigma_sq = sigmas[i] * sigmas[i]
+                EXP = np.exp(-R_sq / sigma_sq)
+                V_theta = (gammas[i] / (2.0 * np.pi * R)) * (1.0 - EXP)
+
+                u_total += -V_theta * DY / R
+                v_total += V_theta * DX / R
+
+        U[j] = u_total
+        V[j] = v_total
+
+    return U, V
+
+
 def compute_velocities_at_points(targets_x, targets_y, sources_x, sources_y, gammas, sigmas, U_inf, flow_angle):
     """
     Calculate velocities from vortices at arbitrary target points.
@@ -418,29 +474,13 @@ def compute_velocities_at_points(targets_x, targets_y, sources_x, sources_y, gam
     if M == 0:
         return np.array([]), np.array([])
 
-    # Freestream contribution with instantaneous U_inf
-    U = np.full(M, U_inf * np.cos(np.radians(flow_angle)))
-    V = np.full(M, U_inf * np.sin(np.radians(flow_angle)))
-    N = len(sources_x)
+    # Compute freestream components
+    flow_angle_rad = np.radians(flow_angle)
+    U_inf_x = U_inf * np.cos(flow_angle_rad)
+    U_inf_y = U_inf * np.sin(flow_angle_rad)
 
-    # Add contributions from all direct vortices
-    for i in range(N):
-        DX = targets_x - sources_x[i]
-        DY = targets_y - sources_y[i]
-        R = np.sqrt(DX**2 + DY**2)
-        mask = R > 1e-6
-        EXP = np.zeros_like(R)
-        EXP[mask] = np.exp(-R[mask]**2 / sigmas[i]**2)
-        V_theta = np.zeros_like(R)
-        V_theta[mask] = (gammas[i] / (2 * np.pi * R[mask])) * (1 - EXP[mask])
-        U_ind = np.zeros_like(R)
-        V_ind = np.zeros_like(R)
-        U_ind[mask] = -V_theta[mask] * DY[mask] / R[mask]
-        V_ind[mask] = V_theta[mask] * DX[mask] / R[mask]
-        U += U_ind
-        V += V_ind
-
-    return U, V
+    # Call optimized numba kernel
+    return compute_velocities_numba(targets_x, targets_y, sources_x, sources_y, gammas, sigmas, U_inf_x, U_inf_y)
 
 def shed_vortex(cyl, t, upper, Re, U_inf, D_ref, Gamma_mag, sigma_0, rotation_angle, flow_angle, theta_sep):
     """Shed a vortex from cylinder separation point (simplified, no turbulence)"""
@@ -653,6 +693,61 @@ x = np.linspace(x_min, x_max, grid_size)
 y = np.linspace(y_min, y_max, grid_size)
 X, Y = np.meshgrid(x, y)
 
+
+@njit(parallel=True, fastmath=True)
+def compute_velocity_field_numba(X_flat, Y_flat, vortex_x, vortex_y, vortex_gamma, vortex_sigma, U_inf_x, U_inf_y):
+    """
+    Numba-optimized velocity field computation for meshgrid visualization.
+
+    Parameters
+    ----------
+    X_flat, Y_flat : np.ndarray (1D)
+        Flattened meshgrid coordinates [m]
+    vortex_x, vortex_y : np.ndarray
+        Vortex positions [m]
+    vortex_gamma : np.ndarray
+        Vortex circulations [m²/s]
+    vortex_sigma : np.ndarray
+        Vortex core sizes [m]
+    U_inf_x, U_inf_y : float
+        Freestream velocity components [m/s]
+
+    Returns
+    -------
+    U_flat, V_flat : np.ndarray (1D)
+        Flattened velocity field components [m/s]
+    """
+    M = len(X_flat)
+    N = len(vortex_x)
+    U = np.empty(M, dtype=np.float64)
+    V = np.empty(M, dtype=np.float64)
+
+    # Parallel loop over grid points
+    for j in prange(M):
+        u_total = U_inf_x
+        v_total = U_inf_y
+
+        # Loop over all vortices
+        for i in range(N):
+            DX = X_flat[j] - vortex_x[i]
+            DY = Y_flat[j] - vortex_y[i]
+            R_sq = DX * DX + DY * DY
+
+            if R_sq > 1e-12:
+                R = np.sqrt(R_sq)
+                sigma_sq = vortex_sigma[i] * vortex_sigma[i]
+                EXP = np.exp(-R_sq / sigma_sq)
+                V_theta = (vortex_gamma[i] / (2.0 * np.pi * R)) * (1.0 - EXP)
+
+                u_total += -V_theta * DY / R
+                v_total += V_theta * DX / R
+
+        U[j] = u_total
+        V[j] = v_total
+
+    return U, V
+
+
 def compute_velocity_field(X, Y, vortices, U_inf, flow_angle):
     """
     Compute velocity field from vortices over meshgrid.
@@ -673,24 +768,29 @@ def compute_velocity_field(X, Y, vortices, U_inf, flow_angle):
     U, V : np.ndarray (2D)
         Velocity field components [m/s]
     """
-    U = np.full_like(X, U_inf * np.cos(np.radians(flow_angle)))
-    V = np.full_like(X, U_inf * np.sin(np.radians(flow_angle)))
+    # Extract vortex properties into arrays
+    vortex_x = np.array([v['x'] for v in vortices])
+    vortex_y = np.array([v['y'] for v in vortices])
+    vortex_gamma = np.array([v['gamma'] for v in vortices])
+    vortex_sigma = np.array([v['sigma'] for v in vortices])
 
-    for v in vortices:
-        DX = X - v['x']
-        DY = Y - v['y']
-        R = np.sqrt(DX**2 + DY**2)
-        mask = R > 1e-6
-        EXP = np.zeros_like(R)
-        EXP[mask] = np.exp(-R[mask]**2 / v['sigma']**2)
-        V_theta = np.zeros_like(R)
-        V_theta[mask] = (v['gamma'] / (2 * np.pi * R[mask])) * (1 - EXP[mask])
-        U_ind = np.zeros_like(R)
-        V_ind = np.zeros_like(R)
-        U_ind[mask] = -V_theta[mask] * DY[mask] / R[mask]
-        V_ind[mask] = V_theta[mask] * DX[mask] / R[mask]
-        U += U_ind
-        V += V_ind
+    # Compute freestream components
+    flow_angle_rad = np.radians(flow_angle)
+    U_inf_x = U_inf * np.cos(flow_angle_rad)
+    U_inf_y = U_inf * np.sin(flow_angle_rad)
+
+    # Flatten meshgrid for numba processing
+    X_flat = X.ravel()
+    Y_flat = Y.ravel()
+
+    # Call numba kernel
+    U_flat, V_flat = compute_velocity_field_numba(
+        X_flat, Y_flat, vortex_x, vortex_y, vortex_gamma, vortex_sigma, U_inf_x, U_inf_y
+    )
+
+    # Reshape back to meshgrid
+    U = U_flat.reshape(X.shape)
+    V = V_flat.reshape(X.shape)
 
     return U, V
 
@@ -708,7 +808,7 @@ plt.colorbar(contour, ax=ax, label='Velocity Magnitude [m/s]')
 skip = 4
 # Dynamically scale arrows based on velocity field statistics
 scale_reference = np.percentile(vel_mag, 95)  # Use 95th percentile to avoid outliers
-scale_dynamic = scale_reference * 4  # Adjust multiplier to control arrow length
+scale_dynamic = scale_reference * 50  # Adjust multiplier to control arrow length
 ax.quiver(X[::skip, ::skip], Y[::skip, ::skip],
           U[::skip, ::skip], V[::skip, ::skip],
           color='white', alpha=0.7, scale=scale_dynamic, width=0.0005)
