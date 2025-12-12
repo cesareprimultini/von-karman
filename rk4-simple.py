@@ -8,21 +8,19 @@ from scipy.interpolate import interp1d
 from numba import njit, prange
 
 
-# ============================================================================
-# CONFIGURATION - All simulation parameters in one place
-# ============================================================================
+# INPUTS
 
-# --- Velocity configuration ---
+# Velocity mode
 velocity_mode = 'function'  # 'constant' or 'file'
 U_inf_constant = 1.0  # Freestream velocity [m/s] (used if mode='constant')
-velocity_file = 'velocity.xlsx'  # Path to Excel file (time in col A, velocity in col B)
+velocity_file = 'velocity.xlsx'  # Path to Excel file (careful: time in col A, velocity in col B)
 
-# --- Geometry ---
+# Geometry
 D = 4.88  # Cylinder diameter [m]
 spacing = 40.0  # Center-to-center spacing [m]
 
-# Cylinder layout (easily configurable)
-s = spacing / 2.0
+# Cylinder layout (can add or remove cylinders as needed)
+s = spacing / 2.0 # Assuming square layout, can be modified ofc
 cylinders = [
     {'x': -s, 'y': +s, 'D': D},
     {'x': +s, 'y': +s, 'D': D},
@@ -30,50 +28,45 @@ cylinders = [
     {'x': +s, 'y': -s, 'D': D},
 ]
 
-# --- Flow conditions ---
-Re_initial = 1000000.0  # Reynolds number at t=0 (100=laminar, 6.7e6=transcritical offshore)
-flow_angle_metocean = 270.0  # Flow direction [degrees, metocean convention]
-rotation_angle = 30.0  # Cylinder cluster rotation [degrees]
+# Flow conditions
+Re_initial = 1000000.0  # Reynolds number at t=0 (100=laminar, 6.7e6=transcritical)
+flow_angle_metocean = 270.0  # Flow direction [degrees, metocean convention 'from']
+rotation_angle = 30.0  # Cylinder cluster rotation [degrees] (all cylinders rotated by same angle, estethics)
 
-# --- Turbulence modeling ---
+# Trubulence modelling (need double checking and calibration!!!)
 enable_eddy_viscosity = (Re_initial > 1000)  # Enable turbulent diffusion for Re > 1000
 enable_stochastic_shedding = (Re_initial > 1000)  # Enable random fluctuations for Re > 1000
 enable_core_saturation = (Re_initial > 1000)  # Limit max core size for Re > 1000
 sigma_max_factor = 0.5  # Maximum core size = sigma_max_factor * D_ref
 
-# --- Time integration ---
+# Time integration (runge kutta 4th order)
 dt = 0.01  # Time step [s]
-total_time = 300.0  # Total simulation time [s]
+total_time = 300.0  # Total simulation time [s] (or max time if velocity file used)
 
-# --- Vortex parameters ---
-sigma_0_factor = 0.1  # Initial core size = sigma_0_factor * D_ref
+# Vortex parameters
 theta_sep_deg = 80.0  # Separation angle [degrees] from rear stagnation point
-x_removal = 250.0  # Remove vortices beyond this x-coordinate [m]
+x_removal = 250.0  # Remove vortices beyond this x-coordinate [m] (makes simulation faster)
 
-# --- Measurement probe ---
-measure_point = (32.0, 5.0)  # (x, y) location [m]
+# Measurement probe
+measure_point = (32.0, 5.0)  # (x, y) location [m] (record velocity time history at this point in space)
 
-# --- Visualization settings ---
-plot_grid_size = 600  # Grid resolution for velocity field
-plot_x_range = (-80.0, 150.0)  # (x_min, x_max) [m]
-plot_y_range = (-50.0, 50.0)  # (y_min, y_max) [m]
+# Plotting settings
+plot_grid_size = 600  # Grid resolution for velocity field (higher = finer, but slower)
+plot_x_range = (-50.0, 150.0)  # (x_min, x_max) [m] (change based on cylinder layout)
+plot_y_range = (-50.0, 50.0)  # (y_min, y_max) [m] (idem)
 plot_arrow_skip = 4  # Arrow decimation factor
 save_wake_plot = True  # Save wake velocity field plot
-save_velocity_history = True  # Save velocity time history plot
+save_velocity_history = True  # Save velocity time history plot (of measurement probe)
 save_freestream_plot = True  # Save freestream velocity plot (if time-varying)
 wake_plot_dpi = 600  # DPI for wake plot
 history_plot_dpi = 150  # DPI for time history plots
 
-# --- Derived parameters ---
+# Derived parameters
 D_ref = max(cyl['D'] for cyl in cylinders)  # Reference diameter [m]
 flow_angle = 270.0 - flow_angle_metocean  # Internal flow angle [degrees]
 theta_sep = np.radians(theta_sep_deg)  # Separation angle [radians]
-sigma_0 = sigma_0_factor * D_ref  # Initial vortex core size [m]
 
-
-# ============================================================================
-# VELOCITY PROFILE SETUP
-# ============================================================================
+# VELOCITY PROFILE
 
 def load_velocity_from_file(filepath):
     """Load time-velocity data from Excel (column A = time, column B = velocity)"""
@@ -84,9 +77,12 @@ def load_velocity_from_file(filepath):
     return interp1d(time_data, velocity_data, kind='linear', fill_value='extrapolate')
 
 
-def velocity_ramp(t):
-    """Example: Linear velocity ramp function"""
-    return 1.0 + 0.01 * t
+def custom_velocity(t):
+    """Example: sinusoidal velocity variation (symmetric wave+current action)"""
+    Uc = 1.0 # Current velocity [m/s]
+    Uw = 0.5 # Wave velocity amplitude [m/s]
+    Tp = 12.0 # Wave period [s]
+    return Uc + Uw * np.sin(2 * np.pi * t / Tp)
 
 
 # Initialize velocity profile based on mode
@@ -95,10 +91,10 @@ if velocity_mode == 'file':
     def get_velocity(t):
         """Returns freestream velocity at time t"""
         return float(velocity_interpolator(t))
-elif velocity_mode == 'function':
+elif velocity_mode == 'function': # not sure this is needed, but whatever
     def get_velocity(t):
         """Returns freestream velocity at time t"""
-        return velocity_ramp(t)
+        return custom_velocity(t)
 else:  # constant
     def get_velocity(t):
         """Returns freestream velocity at time t"""
@@ -242,6 +238,7 @@ def shed_vortex_with_turbulence(cyl, t, upper, Re, U_inf, D_ref, Gamma_mag, sigm
         'gamma_target': gamma,  # Maximum circulation (final value)
         'gamma': 0.0,  # Current circulation (starts at zero)
         'sigma': sigma_0,
+        'sigma_0': sigma_0,  # Store initial core size for diffusion calculations
         'birth_t': t,
         'U_inf_birth': U_inf,  # Velocity at birth time
         'T_form': compute_formation_time(D_ref, U_inf, Re)
@@ -433,10 +430,13 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
             St_now = compute_strouhal_number(Re_now)
             Gamma_mag_now = compute_circulation_magnitude(U_inf_now, D_ref, St_now)
 
+            # Compute dynamic initial core size based on current Reynolds number (Lewis and Radko, 2020, https://doi.org/10.1063/5.0022537)
+            sigma_0_dynamic = 0.4385 * D_ref * (Re_now ** (-0.397))
+
             # Shed vortex with current conditions
             upper = (shed_counters[c_idx] % 2 == 0)
             new_vortex = shed_vortex_with_turbulence(
-                cyl, time, upper, Re_now, U_inf_now, D_ref, Gamma_mag_now, sigma_0,
+                cyl, time, upper, Re_now, U_inf_now, D_ref, Gamma_mag_now, sigma_0_dynamic,
                 rotation_angle, flow_angle, theta_sep, enable_stochastic=enable_stochastic_shedding
             )
             all_vortices.append(new_vortex)
@@ -464,9 +464,10 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
         for i in range(N):
             x_vortex = all_vortices[i]['x']
             y_vortex = all_vortices[i]['y']
+            sigma_0_vortex = all_vortices[i]['sigma_0']  # Use vortex's initial core size
             nu_eff = compute_eddy_viscosity_field(x_vortex, y_vortex, D_ref, nu, U_inf_now, Re_now)
             age = ages[i]
-            sigma_new = np.sqrt(sigma_0**2 + 4 * nu_eff * age)
+            sigma_new = np.sqrt(sigma_0_vortex**2 + 4 * nu_eff * age)
 
             # Apply core saturation if enabled
             if enable_core_saturation:
@@ -476,9 +477,9 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
             all_vortices[i]['sigma'] = sigma_new
     else:
         # Standard laminar diffusion (molecular viscosity only)
-        sigmas_temp = np.sqrt(sigma_0**2 + 4 * nu * ages)
         for i in range(N):
-            all_vortices[i]['sigma'] = sigmas_temp[i]
+            sigma_0_vortex = all_vortices[i]['sigma_0']  # Use vortex's initial core size
+            all_vortices[i]['sigma'] = np.sqrt(sigma_0_vortex**2 + 4 * nu * ages[i])
 
     # 3. CIRCULATION GROWTH (gradual formation)
     for i in range(N):
