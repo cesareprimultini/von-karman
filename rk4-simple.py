@@ -19,7 +19,7 @@ velocity_file = 'velocity.xlsx'  # Path to Excel file (time in col A, velocity i
 D = 4.88  # Cylinder diameter [m]
 spacing = 40.0  # Center-to-center spacing [m]
 
-# Cylinder layout (easily configurable)
+# Cylinder layout (can be modified as needed)
 s = spacing / 2.0
 cylinders = [
     {'x': -s, 'y': +s, 'D': D},
@@ -28,32 +28,30 @@ cylinders = [
     {'x': +s, 'y': -s, 'D': D},
 ]
 
-# --- Flow conditions ---
-# Physical approach: nu (viscosity) is a fixed fluid property
-# Reynolds number Re = U * D / nu varies with velocity U(t)
+# Flow conditions
 nu = 4.88e-6  # Kinematic viscosity [m²/s] (seawater at ~10°C, 35 g/kg salinity)
 flow_angle_metocean = 270.0  # Flow direction [degrees, metocean convention]
 rotation_angle = 30.0  # Cylinder cluster rotation [degrees]
 
-# --- Turbulence modeling ---
+# Turbulence modeling
 # Note: Turbulence flags determined from Reynolds number at t=0
-enable_eddy_viscosity_threshold = 1000  # Enable turbulent diffusion for Re > this value
-enable_stochastic_shedding_threshold = 1000  # Enable random fluctuations for Re > this value
-enable_core_saturation_threshold = 1000  # Limit max core size for Re > this value
+enable_eddy_viscosity_threshold = 10000000  # Enable turbulent diffusion for Re > this value (normally 1000)
+enable_stochastic_shedding_threshold = 10000000  # Enable random fluctuations for Re > this value (normally 1000)
+enable_core_saturation_threshold = 10000000  # Limit max core size for Re > this value (normally 1000)
 sigma_max_factor = 0.5  # Maximum core size = sigma_max_factor * D_ref
 
-# --- Time integration ---
+# Time integration (runge-kutta 4)
 dt = 0.01  # Time step [s]
-total_time = 300.0  # Total simulation time [s]
+total_time = 500.0  # Total simulation time [s]
 
-# --- Vortex parameters ---
-theta_sep_deg = 80.0  # Separation angle [degrees] from rear stagnation point
+# Vortex parameters
+theta_sep_deg = 80.0  # Separation angle [degrees] from rear stagnation point (should be about 81)
 x_removal = 250.0  # Remove vortices beyond this x-coordinate [m]
 
-# --- Measurement probe ---
+# Measurement probe (for the velocity time history)
 measure_point = (32.0, 5.0)  # (x, y) location [m]
 
-# --- Visualization settings ---
+# Visualization settings
 plot_grid_size = 600  # Grid resolution for velocity field
 plot_x_range = (-80.0, 150.0)  # (x_min, x_max) [m]
 plot_y_range = (-50.0, 50.0)  # (y_min, y_max) [m]
@@ -62,17 +60,15 @@ save_wake_plot = True  # Save wake velocity field plot
 save_velocity_history = True  # Save velocity time history plot
 save_freestream_plot = True  # Save freestream velocity plot (if time-varying)
 wake_plot_dpi = 600  # DPI for wake plot
-history_plot_dpi = 150  # DPI for time history plots
+history_plot_dpi = 300  # DPI for time history plots
 
-# --- Derived parameters ---
+# Derived parameters
 D_ref = max(cyl['D'] for cyl in cylinders)  # Reference diameter [m]
 flow_angle = 270.0 - flow_angle_metocean  # Internal flow angle [degrees]
 theta_sep = np.radians(theta_sep_deg)  # Separation angle [radians]
 
 
-# ============================================================================
-# VELOCITY PROFILE SETUP
-# ============================================================================
+# VELOCITY PROFILE
 
 def load_velocity_from_file(filepath):
     """Load time-velocity data from Excel (column A = time, column B = velocity)"""
@@ -82,8 +78,8 @@ def load_velocity_from_file(filepath):
     velocity_data = df.iloc[:, 1].values
     return interp1d(time_data, velocity_data, kind='linear', fill_value='extrapolate')
 
-
-def velocity_ramp(t):
+# This is a custom velocity function example
+def custom_velocity(t):
     """Example: Linear velocity ramp function"""
     return 1.0 + 0.01 * t
 
@@ -97,7 +93,7 @@ if velocity_mode == 'file':
 elif velocity_mode == 'function':
     def get_velocity(t):
         """Returns freestream velocity at time t"""
-        return velocity_ramp(t)
+        return custom_velocity(t)
 else:  # constant
     def get_velocity(t):
         """Returns freestream velocity at time t"""
@@ -107,18 +103,16 @@ else:  # constant
 U_inf_initial = get_velocity(0.0)
 
 
-# ============================================================================
 # PHYSICS FUNCTIONS
-# ============================================================================
 
 def initial_core_size(D, Re):
     """Compute initial vortex core size at shedding"""
     # Constant scaling factor (maybe modify with Lewis & Radko 2020 https://doi.org/10.1063/5.0022537)
-    return 0.1 * D
+    return 0.1 * D # Lewis: sigma_0 = D*26.7461*Re**(-0.5296), need to check with Terry tho
 
 
-def compute_strouhal_number(Re):
-    """Strouhal number from Reynolds (Roshko 1961 correlations extended for high Re)"""
+def compute_strouhal_number(Re): # Taken from Roshko 1961, should be ok
+    """Strouhal number from Reynolds (Roshko 1961 correlations)"""
     if Re < 47:
         return 0.0  # No vortex shedding
     elif Re < 300:
@@ -140,13 +134,13 @@ def compute_circulation_magnitude(U_inf, D, St):
 def compute_shedding_period(U_inf, D, St):
     """Shedding period T = D/(St*U) from Strouhal relation f = St*U/D"""
     if St <= 0:
-        return np.inf
+        return np.inf # No shedding
     return D / (St * U_inf)
 
 
 def compute_eddy_viscosity_field(x, y, D, nu_molecular, U_inf, Re):
     """Effective viscosity (molecular + turbulent eddy contribution in wake)"""
-    # Turbulent viscosity coefficient (calibrated from experiments)
+    # Turbulent viscosity coefficient (needs checking/tuning!!!!)
     if Re < 1000:
         C_eddy = 0.01
     elif Re < 1e5:
@@ -170,7 +164,9 @@ def compute_eddy_viscosity_field(x, y, D, nu_molecular, U_inf, Re):
 
 
 def compute_formation_time(D, U_inf, Re):
-    """Vortex formation time scale (formation number F* ~ 4.0)"""
+    """ Vortex formation time scale (formation number F* ~ 4.0).
+        A single vortex structure reaches its maximum circulation and "pinches off" 
+        after the flow has traveled a distance of about four characteristic lengths. """
     F_star = 4.0
     if Re > 1e5:
         F_star *= 0.8  # 20% faster formation in turbulent regime
@@ -178,7 +174,8 @@ def compute_formation_time(D, U_inf, Re):
 
 
 def circulation_growth_sigmoid(t_age, T_form):
-    """Smooth circulation growth factor [0,1] during vortex formation"""
+    """ Smooth circulation growth factor [0,1] during vortex formation
+        Chose arbitrarily as a sigmoid, but just to smooth out the growth over T_form."""
     if t_age < 0:
         return 0.0
 
@@ -196,9 +193,7 @@ def circulation_growth_sigmoid(t_age, T_form):
     return np.clip(g_normalized, 0.0, 1.0)
 
 
-# ============================================================================
 # VORTEX DYNAMICS
-# ============================================================================
 
 def apply_transforms(x, y, rot_deg, flow_deg):
     """Apply rotation and flow angle transforms to coordinates"""
@@ -213,7 +208,7 @@ def shed_vortex_with_turbulence(cyl, t, upper, Re, U_inf, D_ref, Gamma_mag,
     sign = 1 if upper else -1
     gamma_base = -Gamma_mag if upper else Gamma_mag
 
-    # Add turbulent fluctuation to circulation
+    # Add turbulent fluctuation to circulation (need to be checked/tuned!!!!)
     if enable_stochastic and Re > 1000:
         fluctuation_level = 0.10 * np.log10(Re / 1000)
         fluctuation_level = min(fluctuation_level, 0.20)  # Cap at 20%
@@ -223,7 +218,7 @@ def shed_vortex_with_turbulence(cyl, t, upper, Re, U_inf, D_ref, Gamma_mag,
 
     # Compute separation angle with optional randomness
     if enable_stochastic and Re > 1000:
-        theta_sep_perturbed = theta_sep + np.random.normal(0, np.radians(5))
+        theta_sep_perturbed = theta_sep + np.random.normal(0, np.radians(5)) # again, need to be checked/tuned!!!
     else:
         theta_sep_perturbed = theta_sep
 
@@ -278,9 +273,8 @@ def remove_internal_vortices(cylinders, vortices, rotation_angle, flow_angle):
     return filtered_vortices
 
 
-# ============================================================================
-# NUMBA KERNELS - DO NOT MODIFY (optimized for parallel performance)
-# ============================================================================
+# NUMBA KERNELS
+# Aim here is to optimize the velocity computation since it's the bottleneck
 
 @njit(parallel=True, fastmath=True)
 def compute_velocities_numba(targets_x, targets_y, sources_x, sources_y, gammas, sigmas, U_inf_x, U_inf_y):
@@ -346,12 +340,10 @@ def compute_velocity_field_numba(X_flat, Y_flat, vortex_x, vortex_y, vortex_gamm
     return U, V
 
 
-# ============================================================================
-# VELOCITY FIELD COMPUTATION
-# ============================================================================
+# VELOCITY FIELD
 
 def compute_velocities_at_points(targets_x, targets_y, sources_x, sources_y, gammas, sigmas, U_inf, flow_angle):
-    """Calculate velocity at arbitrary points (no boundary enforcement, transparent cylinders)"""
+    """Calculate velocity at arbitrary points (no boundary, cylinders treated as transparent)"""
     M = len(targets_x)
     if M == 0:
         return np.array([]), np.array([])
@@ -394,9 +386,7 @@ def compute_velocity_field(X, Y, vortices, U_inf, flow_angle):
     return U, V
 
 
-# ============================================================================
 # MAIN SIMULATION
-# ============================================================================
 
 # Initialize simulation
 all_vortices = []
@@ -404,13 +394,13 @@ time = 0.0
 shed_counters = [0 for _ in cylinders]
 
 # Initialize shedding schedule with initial velocity
-U_inf_0 = get_velocity(0.0)
+U_inf_0 = get_velocity(time)
 Re_0 = U_inf_0 * D_ref / nu
 St_0 = compute_strouhal_number(Re_0)
 shed_period_0 = compute_shedding_period(U_inf_0, D_ref, St_0)
 next_shed_times = [shed_period_0 for _ in cylinders]
 
-# Set turbulence modeling flags based on initial Reynolds number
+# Set turbulence modeling flags based on initial Reynolds number (OFF for now)
 enable_eddy_viscosity = (Re_0 > enable_eddy_viscosity_threshold)
 enable_stochastic_shedding = (Re_0 > enable_stochastic_shedding_threshold)
 enable_core_saturation = (Re_0 > enable_core_saturation_threshold)
@@ -422,11 +412,12 @@ history_data = {
     'uy': [],
     'vmag': []
 }
+#  need to check and save Re over time and sigma for sure (!!!)
 shed_times = []  # Track shedding events
 
 # Print initial conditions
 print("Starting vortex method simulation...")
-print(f"  Kinematic viscosity (fixed) = {nu:.6e} m²/s")
+print(f"  Kinematic viscosity = {nu:.6e} m²/s")
 print(f"  Initial velocity U_inf(0) = {U_inf_0:.3f} m/s")
 print(f"  Initial Reynolds Re(0) = {Re_0:.2e} (calculated from U, D, nu)")
 print(f"  Strouhal number St(0) = {St_0:.3f}")
@@ -497,7 +488,7 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
         for i in range(N):
             sigma_0_vortex = all_vortices[i]['sigma_0']  # Use vortex's initial core size
             age = ages[i]
-            sigma_new = np.sqrt(sigma_0_vortex**2 + 4 * nu * age)
+            sigma_new = np.sqrt(sigma_0_vortex**2 + 4 * nu * age) # formula sigma = sqrt(sigma_0^2 + 4*nu*t) from Lamb-Oseen
             all_vortices[i]['sigma'] = sigma_new
 
     # 3. CIRCULATION GROWTH (gradual formation)
@@ -567,10 +558,7 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
 
 print(f"Simulation complete. Total vortices in domain: {len(all_vortices)}")
 
-
-# ============================================================================
 # VISUALIZATION
-# ============================================================================
 
 # Compute velocity field for visualization
 if save_wake_plot:
@@ -693,5 +681,8 @@ if velocity_mode != 'constant' and save_freestream_plot:
     plt.savefig('freestream_velocity_timeseries.png', dpi=history_plot_dpi, bbox_inches='tight')
     print("Saved freestream_velocity_timeseries.png")
     plt.close()
+
+    # Save freestream data
+    # developing...
 
 print(f"\nDone!")

@@ -28,7 +28,11 @@
       "Bash(timeout 600 python:*)",
       "Bash(timeout:*)",
       "WebFetch(domain:authors.library.caltech.edu)",
-      "WebFetch(domain:www.scholarpedia.org)"
+      "WebFetch(domain:www.scholarpedia.org)",
+      "WebFetch(domain:formulasearchengine.com)",
+      "WebFetch(domain:www.hellenicaworld.com)",
+      "WebFetch(domain:www.diva-portal.org)",
+      "WebFetch(domain:assets.cambridge.org)"
     ],
     "deny": [],
     "ask": []
