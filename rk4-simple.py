@@ -8,16 +8,14 @@ from scipy.interpolate import interp1d
 from numba import njit, prange
 
 
-# ============================================================================
-# CONFIGURATION - All simulation parameters in one place
-# ============================================================================
+# INPUTS
 
-# --- Velocity configuration ---
-velocity_mode = 'function'  # 'constant' or 'file'
+# Velocity config
+velocity_mode = 'constant'  # 'constant' or 'file'
 U_inf_constant = 1.0  # Freestream velocity [m/s] (used if mode='constant')
 velocity_file = 'velocity.xlsx'  # Path to Excel file (time in col A, velocity in col B)
 
-# --- Geometry ---
+# Geometry
 D = 4.88  # Cylinder diameter [m]
 spacing = 40.0  # Center-to-center spacing [m]
 
@@ -31,14 +29,17 @@ cylinders = [
 ]
 
 # --- Flow conditions ---
-Re_initial = 1000000.0  # Reynolds number at t=0 (100=laminar, 6.7e6=transcritical offshore)
+# Physical approach: nu (viscosity) is a fixed fluid property
+# Reynolds number Re = U * D / nu varies with velocity U(t)
+nu = 4.88e-6  # Kinematic viscosity [m²/s] (seawater at ~10°C, 35 g/kg salinity)
 flow_angle_metocean = 270.0  # Flow direction [degrees, metocean convention]
 rotation_angle = 30.0  # Cylinder cluster rotation [degrees]
 
 # --- Turbulence modeling ---
-enable_eddy_viscosity = (Re_initial > 1000)  # Enable turbulent diffusion for Re > 1000
-enable_stochastic_shedding = (Re_initial > 1000)  # Enable random fluctuations for Re > 1000
-enable_core_saturation = (Re_initial > 1000)  # Limit max core size for Re > 1000
+# Note: Turbulence flags determined from Reynolds number at t=0
+enable_eddy_viscosity_threshold = 1000  # Enable turbulent diffusion for Re > this value
+enable_stochastic_shedding_threshold = 1000  # Enable random fluctuations for Re > this value
+enable_core_saturation_threshold = 1000  # Limit max core size for Re > this value
 sigma_max_factor = 0.5  # Maximum core size = sigma_max_factor * D_ref
 
 # --- Time integration ---
@@ -46,7 +47,6 @@ dt = 0.01  # Time step [s]
 total_time = 300.0  # Total simulation time [s]
 
 # --- Vortex parameters ---
-sigma_0_factor = 0.1  # Initial core size = sigma_0_factor * D_ref
 theta_sep_deg = 80.0  # Separation angle [degrees] from rear stagnation point
 x_removal = 250.0  # Remove vortices beyond this x-coordinate [m]
 
@@ -68,7 +68,6 @@ history_plot_dpi = 150  # DPI for time history plots
 D_ref = max(cyl['D'] for cyl in cylinders)  # Reference diameter [m]
 flow_angle = 270.0 - flow_angle_metocean  # Internal flow angle [degrees]
 theta_sep = np.radians(theta_sep_deg)  # Separation angle [radians]
-sigma_0 = sigma_0_factor * D_ref  # Initial vortex core size [m]
 
 
 # ============================================================================
@@ -104,14 +103,19 @@ else:  # constant
         """Returns freestream velocity at time t"""
         return U_inf_constant
 
-# Compute fixed molecular viscosity from initial conditions
+# Get initial velocity (nu is already defined as a fixed physical property)
 U_inf_initial = get_velocity(0.0)
-nu = U_inf_initial * D_ref / Re_initial  # Kinematic viscosity [m²/s] (fixed, Re varies with U)
 
 
 # ============================================================================
 # PHYSICS FUNCTIONS
 # ============================================================================
+
+def initial_core_size(D, Re):
+    """Compute initial vortex core size at shedding"""
+    # Constant scaling factor (maybe modify with Lewis & Radko 2020 https://doi.org/10.1063/5.0022537)
+    return 0.1 * D
+
 
 def compute_strouhal_number(Re):
     """Strouhal number from Reynolds (Roshko 1961 correlations extended for high Re)"""
@@ -203,7 +207,7 @@ def apply_transforms(x, y, rot_deg, flow_deg):
     return c*x - s*y, s*x + c*y
 
 
-def shed_vortex_with_turbulence(cyl, t, upper, Re, U_inf, D_ref, Gamma_mag, sigma_0,
+def shed_vortex_with_turbulence(cyl, t, upper, Re, U_inf, D_ref, Gamma_mag,
                                   rotation_angle, flow_angle, theta_sep, enable_stochastic=True):
     """Create new vortex at separation point with turbulent fluctuations"""
     sign = 1 if upper else -1
@@ -236,12 +240,16 @@ def shed_vortex_with_turbulence(cyl, t, upper, Re, U_inf, D_ref, Gamma_mag, sigm
     x_shed = x_cyl_global + a * np.cos(theta)
     y_shed = y_cyl_global + a * np.sin(theta)
 
+    # Compute initial core size dynamically (can be function of Re and D)
+    sigma_0 = initial_core_size(D_ref, Re)
+
     return {
         'x': x_shed,
         'y': y_shed,
         'gamma_target': gamma,  # Maximum circulation (final value)
         'gamma': 0.0,  # Current circulation (starts at zero)
         'sigma': sigma_0,
+        'sigma_0': sigma_0,  # Store initial core size for diffusion equation
         'birth_t': t,
         'U_inf_birth': U_inf,  # Velocity at birth time
         'T_form': compute_formation_time(D_ref, U_inf, Re)
@@ -402,6 +410,11 @@ St_0 = compute_strouhal_number(Re_0)
 shed_period_0 = compute_shedding_period(U_inf_0, D_ref, St_0)
 next_shed_times = [shed_period_0 for _ in cylinders]
 
+# Set turbulence modeling flags based on initial Reynolds number
+enable_eddy_viscosity = (Re_0 > enable_eddy_viscosity_threshold)
+enable_stochastic_shedding = (Re_0 > enable_stochastic_shedding_threshold)
+enable_core_saturation = (Re_0 > enable_core_saturation_threshold)
+
 # Data storage (easy to extend with new variables)
 history_data = {
     'time': [],
@@ -413,10 +426,14 @@ shed_times = []  # Track shedding events
 
 # Print initial conditions
 print("Starting vortex method simulation...")
-print(f"  U_inf(0) = {U_inf_0:.3f} m/s")
-print(f"  Re(0) = {Re_0:.2e}")
-print(f"  St(0) = {St_0:.3f}")
-print(f"  nu (fixed) = {nu:.6e} m²/s")
+print(f"  Kinematic viscosity (fixed) = {nu:.6e} m²/s")
+print(f"  Initial velocity U_inf(0) = {U_inf_0:.3f} m/s")
+print(f"  Initial Reynolds Re(0) = {Re_0:.2e} (calculated from U, D, nu)")
+print(f"  Strouhal number St(0) = {St_0:.3f}")
+print(f"  Turbulence modeling:")
+print(f"    Eddy viscosity: {'enabled' if enable_eddy_viscosity else 'disabled'}")
+print(f"    Stochastic shedding: {'enabled' if enable_stochastic_shedding else 'disabled'}")
+print(f"    Core saturation: {'enabled' if enable_core_saturation else 'disabled'}")
 print(f"  Initial shedding period = {shed_period_0:.3f} s\n")
 
 num_steps = int(total_time / dt)
@@ -436,7 +453,7 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
             # Shed vortex with current conditions
             upper = (shed_counters[c_idx] % 2 == 0)
             new_vortex = shed_vortex_with_turbulence(
-                cyl, time, upper, Re_now, U_inf_now, D_ref, Gamma_mag_now, sigma_0,
+                cyl, time, upper, Re_now, U_inf_now, D_ref, Gamma_mag_now,
                 rotation_angle, flow_angle, theta_sep, enable_stochastic=enable_stochastic_shedding
             )
             all_vortices.append(new_vortex)
@@ -466,7 +483,8 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
             y_vortex = all_vortices[i]['y']
             nu_eff = compute_eddy_viscosity_field(x_vortex, y_vortex, D_ref, nu, U_inf_now, Re_now)
             age = ages[i]
-            sigma_new = np.sqrt(sigma_0**2 + 4 * nu_eff * age)
+            sigma_0_vortex = all_vortices[i]['sigma_0']  # Use vortex's initial core size
+            sigma_new = np.sqrt(sigma_0_vortex**2 + 4 * nu_eff * age)
 
             # Apply core saturation if enabled
             if enable_core_saturation:
@@ -476,9 +494,11 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
             all_vortices[i]['sigma'] = sigma_new
     else:
         # Standard laminar diffusion (molecular viscosity only)
-        sigmas_temp = np.sqrt(sigma_0**2 + 4 * nu * ages)
         for i in range(N):
-            all_vortices[i]['sigma'] = sigmas_temp[i]
+            sigma_0_vortex = all_vortices[i]['sigma_0']  # Use vortex's initial core size
+            age = ages[i]
+            sigma_new = np.sqrt(sigma_0_vortex**2 + 4 * nu * age)
+            all_vortices[i]['sigma'] = sigma_new
 
     # 3. CIRCULATION GROWTH (gradual formation)
     for i in range(N):
@@ -674,9 +694,4 @@ if velocity_mode != 'constant' and save_freestream_plot:
     print("Saved freestream_velocity_timeseries.png")
     plt.close()
 
-
-print(f"\nDone! S/D = {spacing/D_ref:.1f}")
-print("This vortex wake field can be combined with:")
-print("  1. Potential flow (local cylinder effects)")
-print("  2. Global flow (terrain/hill effects)")
-print("  for total velocity amplification at probe locations")
+print(f"\nDone!")
