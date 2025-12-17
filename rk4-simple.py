@@ -57,6 +57,7 @@ plot_x_range = (-80.0, 150.0)  # (x_min, x_max) [m]
 plot_y_range = (-50.0, 50.0)  # (y_min, y_max) [m]
 plot_arrow_skip = 4  # Arrow decimation factor
 save_wake_plot = True  # Save wake velocity field plot
+wake_plot_interval = 5.0  # Save wake plot every N seconds (0 = only at end)
 save_velocity_history = True  # Save velocity time history plot
 save_freestream_plot = True  # Save freestream velocity plot (if time-varying)
 wake_plot_dpi = 600  # DPI for wake plot
@@ -169,7 +170,7 @@ def compute_formation_time(D, U_inf, Re):
         after the flow has traveled a distance of about four characteristic lengths. """
     F_star = 4.0
     if Re > 1e5:
-        F_star *= 0.8  # 20% faster formation in turbulent regime
+        F_star *= 0.8  # 20% faster formation in turbulent regime (NEED TO CHECK THIS, arbitrary at the moment!!!)
     return F_star * (D / U_inf)
 
 
@@ -340,6 +341,66 @@ def compute_velocity_field_numba(X_flat, Y_flat, vortex_x, vortex_y, vortex_gamm
     return U, V
 
 
+# WAKE PLOTTING FUNCTION
+
+def save_wake_velocity_plot(all_vortices, current_time, U_inf_current, filename_suffix=''):
+    """Generate and save wake velocity field plot"""
+    print(f"Computing velocity field for plot at t={current_time:.1f}s...")
+    x = np.linspace(plot_x_range[0], plot_x_range[1], plot_grid_size)
+    y = np.linspace(plot_y_range[0], plot_y_range[1], plot_grid_size)
+    X, Y = np.meshgrid(x, y)
+
+    U, V = compute_velocity_field(X, Y, all_vortices, U_inf_current, flow_angle)
+    vel_mag = np.sqrt(U**2 + V**2)
+
+    # Plot wake velocity field
+    fig, ax = plt.subplots(figsize=(16, 8), dpi=300)
+
+    contour = ax.contourf(X, Y, vel_mag, levels=100, cmap='viridis')
+    plt.colorbar(contour, ax=ax, label='Velocity Magnitude [m/s]')
+
+    # Velocity arrows
+    skip = plot_arrow_skip
+    scale_reference = np.percentile(vel_mag, 95)
+    scale_dynamic = scale_reference * 80
+    ax.quiver(X[::skip, ::skip], Y[::skip, ::skip],
+              U[::skip, ::skip], V[::skip, ::skip],
+              color='white', alpha=0.7, scale=scale_dynamic, width=0.0005)
+
+    # Draw cylinders
+    for cyl in cylinders:
+        x_cyl, y_cyl = apply_transforms(cyl['x'], cyl['y'], rotation_angle, flow_angle)
+        circle = Circle((x_cyl, y_cyl), cyl['D']/2,
+                        color='gray', fill=True, zorder=10,
+                        edgecolor='black', linewidth=2)
+        ax.add_patch(circle)
+
+    # Draw vortices
+    for v in all_vortices:
+        color = 'ro' if v['gamma'] > 0 else 'bo'
+        ax.plot(v['x'], v['y'], color, markersize=2, alpha=0.4)
+
+    # Draw measurement probe
+    ax.plot(measure_point[0], measure_point[1], 'r*', markersize=12,
+            markeredgewidth=1.5, markeredgecolor='black', label='CPS', zorder=15)
+
+    ax.set_xlim(plot_x_range)
+    ax.set_ylim(plot_y_range)
+    ax.set_xlabel('x [m]')
+    ax.set_ylabel('y [m]')
+    Re_current = U_inf_current * D_ref / nu
+    ax.set_title(f'Vortex Wake (D={D_ref}m, Re={Re_current:.2e}, t={current_time:.1f}s)')
+    ax.set_aspect('equal')
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='upper right')
+
+    plt.tight_layout()
+    filename = f'cylinder_wake{filename_suffix}.png'
+    plt.savefig(filename, dpi=wake_plot_dpi, bbox_inches='tight')
+    print(f"Saved {filename}")
+    plt.close()
+
+
 # VELOCITY FIELD
 
 def compute_velocities_at_points(targets_x, targets_y, sources_x, sources_y, gammas, sigmas, U_inf, flow_angle):
@@ -414,6 +475,9 @@ history_data = {
 }
 #  need to check and save Re over time and sigma for sure (!!!)
 shed_times = []  # Track shedding events
+
+# Initialize wake plot timing
+next_wake_plot_time = wake_plot_interval if wake_plot_interval > 0 else np.inf
 
 # Print initial conditions
 print("Starting vortex method simulation...")
@@ -554,68 +618,21 @@ for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="ste
     history_data['uy'].append(uy[0] if len(uy) > 0 else U_inf_now * np.sin(np.radians(flow_angle)))
     history_data['vmag'].append(np.sqrt(history_data['ux'][-1]**2 + history_data['uy'][-1]**2))
 
+    # 7. PERIODIC WAKE PLOTTING
+    if save_wake_plot and time >= next_wake_plot_time:
+        save_wake_velocity_plot(all_vortices, time, U_inf_now, filename_suffix=f'_t{time:06.1f}')
+        next_wake_plot_time += wake_plot_interval
+
     time += dt
 
 print(f"Simulation complete. Total vortices in domain: {len(all_vortices)}")
 
 # VISUALIZATION
 
-# Compute velocity field for visualization
+# Final wake plot (at end of simulation)
 if save_wake_plot:
-    print("Computing velocity field...")
-    x = np.linspace(plot_x_range[0], plot_x_range[1], plot_grid_size)
-    y = np.linspace(plot_y_range[0], plot_y_range[1], plot_grid_size)
-    X, Y = np.meshgrid(x, y)
-
     U_inf_final = get_velocity(time)
-    U, V = compute_velocity_field(X, Y, all_vortices, U_inf_final, flow_angle)
-    vel_mag = np.sqrt(U**2 + V**2)
-
-    # Plot wake velocity field
-    fig, ax = plt.subplots(figsize=(16, 8), dpi=300)
-
-    contour = ax.contourf(X, Y, vel_mag, levels=100, cmap='viridis')
-    plt.colorbar(contour, ax=ax, label='Velocity Magnitude [m/s]')
-
-    # Velocity arrows
-    skip = plot_arrow_skip
-    scale_reference = np.percentile(vel_mag, 95)
-    scale_dynamic = scale_reference * 80
-    ax.quiver(X[::skip, ::skip], Y[::skip, ::skip],
-              U[::skip, ::skip], V[::skip, ::skip],
-              color='white', alpha=0.7, scale=scale_dynamic, width=0.0005)
-
-    # Draw cylinders
-    for cyl in cylinders:
-        x_cyl, y_cyl = apply_transforms(cyl['x'], cyl['y'], rotation_angle, flow_angle)
-        circle = Circle((x_cyl, y_cyl), cyl['D']/2,
-                        color='gray', fill=True, zorder=10,
-                        edgecolor='black', linewidth=2)
-        ax.add_patch(circle)
-
-    # Draw vortices
-    for v in all_vortices:
-        color = 'ro' if v['gamma'] > 0 else 'bo'
-        ax.plot(v['x'], v['y'], color, markersize=2, alpha=0.4)
-
-    # Draw measurement probe
-    ax.plot(measure_point[0], measure_point[1], 'r*', markersize=12,
-            markeredgewidth=1.5, markeredgecolor='black', label='CPS', zorder=15)
-
-    ax.set_xlim(plot_x_range)
-    ax.set_ylim(plot_y_range)
-    ax.set_xlabel('x [m]')
-    ax.set_ylabel('y [m]')
-    Re_final = U_inf_final * D_ref / nu
-    ax.set_title(f'Vortex Wake (D={D_ref}m, Re={Re_final:.2e}, t={total_time}s)')
-    ax.set_aspect('equal')
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc='upper right')
-
-    plt.tight_layout()
-    plt.savefig('cylinder_wake.png', dpi=wake_plot_dpi, bbox_inches='tight')
-    print("Saved cylinder_wake.png")
-    plt.close()
+    save_wake_velocity_plot(all_vortices, time, U_inf_final, filename_suffix='')
 
 
 # Velocity time history plot

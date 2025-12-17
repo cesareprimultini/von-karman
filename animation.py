@@ -1,7 +1,7 @@
 from PIL import Image
 import os
 
-folder = "frames"
+folder = "frames_4cyl"
 
 # Load all PNG/JPG files sorted alphabetically
 files = sorted([f for f in os.listdir(folder) if f.lower().endswith((".png", ".jpg"))])
