@@ -13,7 +13,7 @@ def plot_velocity_field(results_df, timestep_index, cylinders, flow_params, plot
     Parameters
     ----------
     results_df : pd.DataFrame
-        DataFrame from VortexSimulation.run()
+        DataFrame from VortexAmp.run()
     timestep_index : int
         Row index to plot
     cylinders : list[dict]
@@ -102,7 +102,7 @@ def plot_vortex_perturbations(results_df, timestep_index, cylinders, flow_params
     Parameters
     ----------
     results_df : pd.DataFrame
-        DataFrame from VortexSimulation.run()
+        DataFrame from VortexAmp.run()
     timestep_index : int
         Row index to plot
     cylinders : list[dict]
@@ -179,7 +179,7 @@ def plot_vortex_perturbations(results_df, timestep_index, cylinders, flow_params
     plt.close()
 
 
-def plot_velocity_history(results_df, probe_indices=None, mark_shedding=False):
+def plot_velocity_history(results_df, probe_indices=None, mark_shedding=False, t_start=None, t_end=None):
     """
     Plot velocity time history for specified probes.
 
@@ -191,6 +191,10 @@ def plot_velocity_history(results_df, probe_indices=None, mark_shedding=False):
         List of probe indices to plot (None = all)
     mark_shedding : bool
         Whether to mark shedding events (vertical lines when vortices shed)
+    t_start : float, optional
+        Start time for plot range (None = use data minimum)
+    t_end : float, optional
+        End time for plot range (None = use data maximum)
     """
     if probe_indices is None:
         probe_cols = [col for col in results_df.columns if col.startswith('probe_') and col.endswith('_ux')]
@@ -200,22 +204,35 @@ def plot_velocity_history(results_df, probe_indices=None, mark_shedding=False):
         print("No measurement points found in results.")
         return
 
+    # Filter dataframe by time range
+    time_mask = np.ones(len(results_df), dtype=bool)
+    if t_start is not None:
+        time_mask &= (results_df['time'] >= t_start)
+    if t_end is not None:
+        time_mask &= (results_df['time'] <= t_end)
+
+    results_filtered = results_df[time_mask]
+
+    if len(results_filtered) == 0:
+        print(f"No data found in time range [{t_start}, {t_end}].")
+        return
+
     print("Generating velocity measurement plot...")
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    time = results_df['time'].values
+    time = results_filtered['time'].values
 
     for idx in probe_indices:
-        ux = results_df[f'probe_{idx}_ux'].values
-        uy = results_df[f'probe_{idx}_uy'].values
-        vmag = results_df[f'probe_{idx}_vmag'].values
+        ux = results_filtered[f'probe_{idx}_ux'].values
+        uy = results_filtered[f'probe_{idx}_uy'].values
+        vmag = results_filtered[f'probe_{idx}_vmag'].values
 
         ax.plot(time, ux, label=f'Probe {idx}: $u_x$', linewidth=1.0, alpha=0.7)
         ax.plot(time, uy, label=f'Probe {idx}: $u_y$', linewidth=1.0, alpha=0.7)
         ax.plot(time, vmag, label=f'Probe {idx}: $|v|$', linewidth=1.5)
 
     if mark_shedding:
-        n_vortices = results_df['n_vortices'].values
+        n_vortices = results_filtered['n_vortices'].values
         shed_indices = np.where(np.diff(n_vortices) > 0)[0]
         shed_times = time[shed_indices]
         for t_shed in shed_times:

@@ -1,10 +1,10 @@
 """Example usage of the modular von Kármán vortex simulation."""
 
-from von_karman_simulator import VortexSimulation
+from von_karman_simulator import VortexAmp
 import plotting
 
 
-# EXAMPLE 1: Basic constant velocity simulation
+# EXAMPLE: Basic constant velocity simulation
 
 print("=" * 60)
 print("EXAMPLE 1: Constant velocity simulation")
@@ -19,38 +19,36 @@ cylinders = [
 ]
 
 # Create simulator with 6 measurement points
-sim = VortexSimulation(
+sim = VortexAmp(
     cylinders=cylinders,
     nu=4.88e-6,
     flow_angle_metocean=270.0,
     rotation_angle=30.0,
     dt=0.01,
-    measurement_points=[
-        (32.0, 5.0)
-    ],
-    save_interval=5.0  # Save vortex field every 5 seconds
+    measurement_points=[(32.0, 5.0)],
+    save_interval=5.0  # Save vortex field every 5 seconds (can be None for no saving)
 )
 
 # Run with constant velocity
 results = sim.run(
     velocity_mode='constant',
-    U_inf=1.0,
+    U_inf=1.5,
     total_time=200.0  # Shorter for example
 )
 
 # Save results
-sim.save_results('example_results.pkl')
+sim.save_results('test_01.pkl')
 print("\n")
 
 
-# EXAMPLE 2: Load and plot results
+# Load and verify results
 
 print("=" * 60)
-print("EXAMPLE 2: Load and plot results")
+print("EXAMPLE: Load and verify results")
 print("=" * 60)
 
 # Load results
-results = VortexSimulation.load_results('example_results.pkl')
+results = VortexAmp.load_results('test_01.pkl')
 
 print(f"Results DataFrame shape: {results.shape}")
 print(f"Columns: {list(results.columns)}")
@@ -131,7 +129,7 @@ def oscillating_direction(t):
     import numpy as np
     return 270.0 + 30.0 * np.sin(2 * np.pi * t / 25.0)
 
-sim2 = VortexSimulation(
+sim2 = VortexAmp(
     cylinders=cylinders,
     nu=4.88e-6,
     flow_angle_metocean=270.0,
