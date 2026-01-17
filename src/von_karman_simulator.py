@@ -469,7 +469,7 @@ class VortexAmp:
                     shed_counters[c_idx] += 1
 
                     shed_period_now = compute_shedding_period(U_inf_now, self.D_ref, St_now)
-                    next_shed_times[c_idx] += shed_period_now
+                    next_shed_times[c_idx] += shed_period_now / 2  # Two vortices per Strouhal period
 
             N = len(all_vortices)
             if N > 0:

@@ -118,6 +118,7 @@ frames/
 ss/
 out/
 output/
+cylinder2d_nc/
 
 # Image and animation files
 *.png

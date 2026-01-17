@@ -295,25 +295,47 @@ def plot_freestream_history(results_df):
     plt.close()
 
 
-def create_animation(results_df, cylinders, flow_params, plot_config, output_file='wake_animation.gif'):
+def create_animation(results_df, cylinders, flow_params, plot_config,
+                     output_file='wake_animation.mp4', frame_skip=1,
+                     sample_frames=30, cleanup_frames=True, fps=30):
     """
-    Create animated visualization using saved vortex snapshots.
-    Only processes rows where vortex_field is not None.
+    Create animated visualization using optimized frame pre-rendering.
+
+    This function samples frames to determine consistent colorbar limits, pre-renders
+    frames to PNG files, then compiles with ffmpeg for fast video generation.
 
     Parameters
     ----------
     results_df : pd.DataFrame
         DataFrame from simulation
     cylinders : list[dict]
-        Cylinder geometry
+        Cylinder geometry: [{'x': x, 'y': y, 'D': D}, ...]
     flow_params : dict
         {'rotation_angle': float, 'flow_angle': float}
     plot_config : dict
         {'x_range': tuple, 'y_range': tuple, 'grid_size': int, 'arrow_skip': int}
     output_file : str
-        Output filename for animation
+        Output video filename (use .mp4, .avi, or .gif extension)
+    frame_skip : int
+        Use every Nth snapshot (1 = use all, 2 = use every other, etc.)
+    sample_frames : int
+        Number of frames to sample for determining colorbar limits (default: 30)
+    cleanup_frames : bool
+        Remove temporary PNG frame files after creating video (default: True)
+    fps : int
+        Frames per second for output video (default: 30)
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    Requires ffmpeg to be installed and available in system PATH.
+    For GIF output, the pillow writer will be used instead of ffmpeg.
     """
-    import matplotlib.animation as animation
+    import os
+    import shutil
 
     snapshot_indices = results_df[results_df['vortex_field'].notna()].index.tolist()
 
@@ -321,33 +343,59 @@ def create_animation(results_df, cylinders, flow_params, plot_config, output_fil
         print("No vortex field snapshots found. Cannot create animation.")
         return
 
-    print(f"Creating animation with {len(snapshot_indices)} frames...")
+    snapshot_indices = snapshot_indices[::frame_skip]
+    total_frames = len(snapshot_indices)
+
+    print(f"Creating animation with {total_frames} frames (skip={frame_skip})...")
 
     x_range = plot_config.get('x_range', (-80, 150))
     y_range = plot_config.get('y_range', (-50, 50))
-    grid_size = plot_config.get('grid_size', 600)
-    arrow_skip = plot_config.get('arrow_skip', 4)
+    grid_size = plot_config.get('grid_size', 400)
+    arrow_skip = plot_config.get('arrow_skip', 6)
 
     x = np.linspace(x_range[0], x_range[1], grid_size)
     y = np.linspace(y_range[0], y_range[1], grid_size)
     X, Y = np.meshgrid(x, y)
 
-    fig, ax = plt.subplots(figsize=(16, 8))
+    sample_step = max(1, total_frames // sample_frames)
+    sample_indices = snapshot_indices[::sample_step]
 
-    def animate(frame_idx):
-        ax.clear()
+    print(f"Sampling {len(sample_indices)} frames to determine colorbar limits...")
+    vel_mag_min = np.inf
+    vel_mag_max = -np.inf
 
-        idx = snapshot_indices[frame_idx]
+    from tqdm import tqdm
+
+    for idx in tqdm(sample_indices, desc="Sampling frames", unit="frame"):
+        row = results_df.iloc[idx]
+        vortex_field = row['vortex_field']
+        U_inf = row['U_inf']
+        U, V = compute_velocity_field(X, Y, vortex_field, U_inf, flow_params['flow_angle'])
+        vel_mag = np.sqrt(U**2 + V**2)
+        vel_mag_min = min(vel_mag_min, vel_mag.min())
+        vel_mag_max = max(vel_mag_max, vel_mag.max())
+
+    print(f"Sampled velocity range: [{vel_mag_min:.2f}, {vel_mag_max:.2f}] m/s")
+
+    frames_dir = 'temp_animation_frames'
+    os.makedirs(frames_dir, exist_ok=True)
+
+    for frame_idx, idx in enumerate(tqdm(snapshot_indices, desc="Rendering frames", unit="frame")):
         row = results_df.iloc[idx]
         vortex_field = row['vortex_field']
         time = row['time']
         U_inf = row['U_inf']
         Re = row['Re']
 
+        fig, ax = plt.subplots(figsize=(16, 8), dpi=100)
+
         U, V = compute_velocity_field(X, Y, vortex_field, U_inf, flow_params['flow_angle'])
         vel_mag = np.sqrt(U**2 + V**2)
 
-        contour = ax.contourf(X, Y, vel_mag, levels=100, cmap='viridis')
+        contour = ax.contourf(X, Y, vel_mag, levels=50, cmap='viridis',
+                             vmin=vel_mag_min, vmax=vel_mag_max)
+
+        cbar = plt.colorbar(contour, ax=ax, label='Velocity Magnitude [m/s]')
 
         skip = arrow_skip
         scale_reference = np.percentile(vel_mag, 95)
@@ -378,11 +426,92 @@ def create_animation(results_df, cylinders, flow_params, plot_config, output_fil
         ax.set_aspect('equal')
         ax.grid(True, alpha=0.3)
 
-        return ax,
+        frame_file = os.path.join(frames_dir, f'frame_{frame_idx:06d}.png')
+        plt.savefig(frame_file, dpi=100, bbox_inches='tight')
+        plt.close(fig)
 
-    anim = animation.FuncAnimation(fig, animate, frames=len(snapshot_indices),
-                                   interval=100, blit=False, repeat=True)
+    print(f"\nAll frames rendered. Compiling video with ffmpeg...")
 
-    anim.save(output_file, writer='pillow', fps=10)
-    print(f"Saved {output_file}")
-    plt.close()
+    file_ext = os.path.splitext(output_file)[1].lower()
+
+    if file_ext == '.gif':
+        print("Creating GIF with pillow (this may take a moment)...")
+        import matplotlib.animation as animation
+
+        fig = plt.figure(figsize=(16, 8))
+        frames = []
+        for frame_idx in range(total_frames):
+            frame_file = os.path.join(frames_dir, f'frame_{frame_idx:06d}.png')
+            img = plt.imread(frame_file)
+            im = plt.imshow(img, animated=True)
+            plt.axis('off')
+            frames.append([im])
+
+        ani = animation.ArtistAnimation(fig, frames, interval=1000/fps, blit=True, repeat_delay=1000)
+        ani.save(output_file, writer='pillow')
+        plt.close()
+    else:
+        try:
+            import subprocess
+            frame_pattern = os.path.join(frames_dir, 'frame_%06d.png')
+
+            cmd = [
+                'ffmpeg',
+                '-y',
+                '-framerate', str(fps),
+                '-i', frame_pattern,
+                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+                '-c:v', 'libx264',
+                '-pix_fmt', 'yuv420p',
+                '-crf', '18',
+                output_file
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                print(f"ffmpeg error: {result.stderr}")
+                print("Falling back to pillow writer...")
+                import matplotlib.animation as animation
+                fallback_file = os.path.splitext(output_file)[0] + '.gif'
+                print(f"Saving as {fallback_file} instead...")
+                fig = plt.figure(figsize=(16, 8))
+                frames = []
+                for frame_idx in range(total_frames):
+                    frame_file = os.path.join(frames_dir, f'frame_{frame_idx:06d}.png')
+                    img = plt.imread(frame_file)
+                    im = plt.imshow(img, animated=True)
+                    plt.axis('off')
+                    frames.append([im])
+                ani = animation.ArtistAnimation(fig, frames, interval=1000/fps, blit=True)
+                ani.save(fallback_file, writer='pillow')
+                plt.close()
+                output_file = fallback_file
+        except FileNotFoundError:
+            print("ffmpeg not found. Falling back to pillow writer...")
+            import matplotlib.animation as animation
+            fallback_file = os.path.splitext(output_file)[0] + '.gif'
+            print(f"Saving as {fallback_file} instead...")
+            fig = plt.figure(figsize=(16, 8))
+            frames = []
+            for frame_idx in range(total_frames):
+                frame_file = os.path.join(frames_dir, f'frame_{frame_idx:06d}.png')
+                img = plt.imread(frame_file)
+                im = plt.imshow(img, animated=True)
+                plt.axis('off')
+                frames.append([im])
+            ani = animation.ArtistAnimation(fig, frames, interval=1000/fps, blit=True)
+            ani.save(fallback_file, writer='pillow')
+            plt.close()
+            output_file = fallback_file
+
+    if cleanup_frames:
+        print(f"Cleaning up temporary frames...")
+        shutil.rmtree(frames_dir)
+    else:
+        print(f"Temporary frames saved in {frames_dir}/")
+
+    print(f"Animation saved to {output_file}")
+    print(f"  Total frames: {total_frames}")
+    print(f"  Frame rate: {fps} fps")
+    print(f"  Duration: {total_frames/fps:.1f} seconds")

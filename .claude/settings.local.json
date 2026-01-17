@@ -32,7 +32,10 @@
       "WebFetch(domain:formulasearchengine.com)",
       "WebFetch(domain:www.hellenicaworld.com)",
       "WebFetch(domain:www.diva-portal.org)",
-      "WebFetch(domain:assets.cambridge.org)"
+      "WebFetch(domain:assets.cambridge.org)",
+      "WebFetch(domain:www.thermopedia.com)",
+      "WebFetch(domain:www.vibrationdata.com)",
+      "mcp__ide__executeCode"
     ],
     "deny": [],
     "ask": []
