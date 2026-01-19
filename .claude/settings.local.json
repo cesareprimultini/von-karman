@@ -35,7 +35,8 @@
       "WebFetch(domain:assets.cambridge.org)",
       "WebFetch(domain:www.thermopedia.com)",
       "WebFetch(domain:www.vibrationdata.com)",
-      "mcp__ide__executeCode"
+      "mcp__ide__executeCode",
+      "WebFetch(domain:arxiv.org)"
     ],
     "deny": [],
     "ask": []
