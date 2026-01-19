@@ -30,8 +30,8 @@ def compute_strouhal_number(Re):
 
 
 def compute_circulation_magnitude(U_inf, D, St):
-    """Target circulation Gamma = 2*pi*St*U*D (potential flow theory)"""
-    return 2.0 * np.pi * U_inf * D
+    """Target circulation Gamma"""
+    return 1.5 * U_inf * D # very manual for now, need CHECKING!!
 
 
 def compute_shedding_period(U_inf, D, St):
