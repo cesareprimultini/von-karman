@@ -267,7 +267,7 @@ def compute_velocity_field(X, Y, vortices, U_inf, flow_angle):
 # VORTEX SIMULATION CLASS
 
 class VortexAmp:
-    """Von Kármán vortex street simulation using viscous vortex method"""
+    """Von Karman vortex street simulation using viscous vortex method"""
 
     def __init__(self, cylinders, nu=4.88e-6, flow_angle_metocean=0, rotation_angle=0,
                  theta_sep_deg=80.0, x_removal=250.0, dt=0.01,

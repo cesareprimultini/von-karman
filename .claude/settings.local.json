@@ -36,7 +36,12 @@
       "WebFetch(domain:www.thermopedia.com)",
       "WebFetch(domain:www.vibrationdata.com)",
       "mcp__ide__executeCode",
-      "WebFetch(domain:arxiv.org)"
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:engineering.purdue.edu)",
+      "WebFetch(domain:www.jafmonline.net)",
+      "WebFetch(domain:www.tfd.chalmers.se)",
+      "WebFetch(domain:www.cfd-sweden.se)",
+      "WebFetch(domain:gemba.org)"
     ],
     "deny": [],
     "ask": []
