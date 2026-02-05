@@ -1,5 +1,8 @@
 """Viscous vortex method for Von Kármán vortex streets shed from one or more cylinders."""
 
+import os
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -272,36 +275,12 @@ class VortexAmp:
     def __init__(self, cylinders, nu=4.88e-6, flow_angle_metocean=0, rotation_angle=0,
                  theta_sep_deg=80.0, x_removal=250.0, dt=0.01,
                  measurement_points=None, save_interval=0.0,
-                 turbulence_thresholds=None, sigma_max_factor=0.5):
-        """
-        Initialize vortex simulation.
+                 turbulence_thresholds=None, sigma_max_factor=0.5,
+                 output_base_dir='output'):
 
-        Parameters
-        ----------
-        cylinders : list[dict]
-            List of cylinder definitions: [{'x': x, 'y': y, 'D': D}, ...]
-        nu : float
-            Kinematic viscosity [m²/s]
-        flow_angle_metocean : float
-            Flow direction [degrees, metocean convention]
-        rotation_angle : float
-            Cylinder cluster rotation [degrees]
-        theta_sep_deg : float
-            Separation angle [degrees] from rear stagnation point
-        x_removal : float
-            Remove vortices beyond this x-coordinate [m]
-        dt : float
-            Time step [s]
-        measurement_points : list[tuple]
-            List of (x, y) coordinates for velocity measurements
-        save_interval : float
-            Save vortex field every N seconds (0 = only save final state)
-        turbulence_thresholds : dict
-            Dict with 'eddy_viscosity', 'stochastic_shedding', 'core_saturation' Re thresholds
-        sigma_max_factor : float
-            Maximum core size = sigma_max_factor * D_ref
-        """
         self.cylinders = cylinders
+        self.output_base_dir = output_base_dir
+        self.output_dir = None
         self.nu = nu
         self.flow_angle_metocean = flow_angle_metocean
         self.rotation_angle = rotation_angle
@@ -318,9 +297,9 @@ class VortexAmp:
 
         if turbulence_thresholds is None:
             turbulence_thresholds = {
-                'eddy_viscosity': 10000000,
-                'stochastic_shedding': 10000000,
-                'core_saturation': 10000000
+                'eddy_viscosity': 10000000, # TURNED OFF A NOT VALIDATED
+                'stochastic_shedding': 10000000, # TURNED OFF A NOT VALIDATED
+                'core_saturation': 10000000 # TURNED OFF A NOT VALIDATED
             }
         self.turbulence_thresholds = turbulence_thresholds
 
@@ -378,33 +357,16 @@ class VortexAmp:
         else:
             raise ValueError(f"Invalid flow_angle_mode: {flow_angle_mode}")
 
-    def run(self, velocity_mode, total_time, progress=True, flow_angle_mode='constant', **velocity_kwargs):
+    def run(self, velocity_mode, total_time, flow_angle_mode='constant', **velocity_kwargs):
         """
         Run simulation to completion.
-
-        Parameters
-        ----------
-        velocity_mode : str
-            'constant', 'file', or 'function'
-        total_time : float
-            Total simulation time [s]
-        progress : bool
-            Show tqdm progress bar
-        flow_angle_mode : str
-            'constant', 'file', or 'function'
-        **velocity_kwargs
-            For 'constant': U_inf=1.0
-            For 'file': velocity_file='path.xlsx'
-            For 'function': velocity_function=callable
-            For flow_angle 'constant': flow_angle_metocean=270.0
-            For flow_angle 'file': flow_angle_file='path.xlsx'
-            For flow_angle 'function': flow_angle_function=callable
-
-        Returns
-        -------
-        results : pd.DataFrame
-            Simulation results
         """
+        # Create unique output folder for this simulation run
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.output_dir = os.path.join(self.output_base_dir, f'sim_{timestamp}')
+        os.makedirs(self.output_dir, exist_ok=True)
+        print(f"Output directory: {self.output_dir}")
+
         get_velocity = self._setup_velocity_profile(velocity_mode, **velocity_kwargs)
         get_flow_angle = self._setup_flow_angle_profile(flow_angle_mode, **velocity_kwargs)
 
@@ -450,7 +412,7 @@ class VortexAmp:
         next_save_time = self.save_interval if self.save_interval > 0 else np.inf
         num_steps = int(total_time / self.dt)
 
-        for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="step", disable=not progress):
+        for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="step"):
 
             for c_idx, cyl in enumerate(self.cylinders):
                 if time >= next_shed_times[c_idx]:
@@ -605,11 +567,14 @@ class VortexAmp:
         return self.results_df
 
     def save_results(self, filename):
-        """Save results DataFrame to pickle file"""
+        """Save results DataFrame to pickle file in the output directory"""
         if self.results_df is None:
             raise ValueError("No results to save. Run simulation first.")
-        self.results_df.to_pickle(filename)
-        print(f"Results saved to {filename}")
+        if self.output_dir is None:
+            raise ValueError("No output directory set. Run simulation first.")
+        filepath = os.path.join(self.output_dir, filename)
+        self.results_df.to_pickle(filepath)
+        print(f"Results saved to {filepath}")
 
     @staticmethod
     def load_results(filename):

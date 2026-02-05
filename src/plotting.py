@@ -1,12 +1,14 @@
 """Visualization functions for von Kármán vortex simulation results."""
 
+import os
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from von_karman_simulator import compute_velocity_field, apply_transforms
 
 
-def plot_velocity_field(results_df, timestep_index, cylinders, flow_params, plot_config):
+def plot_velocity_field(results_df, timestep_index, cylinders, flow_params, plot_config, output_dir=None):
     """
     Reconstruct and plot total velocity field (freestream + vortices).
 
@@ -23,6 +25,8 @@ def plot_velocity_field(results_df, timestep_index, cylinders, flow_params, plot
     plot_config : dict
         {'x_range': (min, max), 'y_range': (min, max), 'grid_size': int,
          'arrow_skip': int, 'dpi': int, 'filename': str}
+    output_dir : str, optional
+        Directory to save output files. If None, saves to current directory.
     """
     row = results_df.iloc[timestep_index]
     vortex_field = row['vortex_field']
@@ -86,12 +90,14 @@ def plot_velocity_field(results_df, timestep_index, cylinders, flow_params, plot
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
+    if output_dir:
+        filename = os.path.join(output_dir, filename)
     plt.savefig(filename, dpi=dpi, bbox_inches='tight')
     print(f"Saved {filename}")
     plt.close()
 
 
-def plot_vortex_perturbations(results_df, timestep_index, cylinders, flow_params, plot_config):
+def plot_vortex_perturbations(results_df, timestep_index, cylinders, flow_params, plot_config, output_dir=None):
     """
     Reconstruct and plot vortex-induced perturbations ONLY (no freestream).
 
@@ -112,6 +118,8 @@ def plot_vortex_perturbations(results_df, timestep_index, cylinders, flow_params
     plot_config : dict
         {'x_range': (min, max), 'y_range': (min, max), 'grid_size': int,
          'arrow_skip': int, 'dpi': int, 'filename': str}
+    output_dir : str, optional
+        Directory to save output files. If None, saves to current directory.
     """
     row = results_df.iloc[timestep_index]
     vortex_field = row['vortex_field']
@@ -174,12 +182,14 @@ def plot_vortex_perturbations(results_df, timestep_index, cylinders, flow_params
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
+    if output_dir:
+        filename = os.path.join(output_dir, filename)
     plt.savefig(filename, dpi=dpi, bbox_inches='tight')
     print(f"Saved {filename}")
     plt.close()
 
 
-def plot_velocity_history(results_df, probe_indices=None, mark_shedding=False, t_start=None, t_end=None):
+def plot_velocity_history(results_df, probe_indices=None, mark_shedding=False, t_start=None, t_end=None, output_dir=None):
     """
     Plot velocity time history for specified probes.
 
@@ -195,6 +205,8 @@ def plot_velocity_history(results_df, probe_indices=None, mark_shedding=False, t
         Start time for plot range (None = use data minimum)
     t_end : float, optional
         End time for plot range (None = use data maximum)
+    output_dir : str, optional
+        Directory to save output files. If None, saves to current directory.
     """
     if probe_indices is None:
         probe_cols = [col for col in results_df.columns if col.startswith('probe_') and col.endswith('_ux')]
@@ -246,12 +258,15 @@ def plot_velocity_history(results_df, probe_indices=None, mark_shedding=False, t
     ax.set_xlim([time[0], time[-1]])
 
     plt.tight_layout()
-    plt.savefig('velocity_history.png', dpi=300, bbox_inches='tight')
-    print("Saved velocity_history.png")
+    filename = 'velocity_history.png'
+    if output_dir:
+        filename = os.path.join(output_dir, filename)
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+    print(f"Saved {filename}")
     plt.close()
 
 
-def plot_freestream_history(results_df):
+def plot_freestream_history(results_df, output_dir=None):
     """
     Plot U_inf and Re vs time (for time-varying cases).
 
@@ -259,6 +274,8 @@ def plot_freestream_history(results_df):
     ----------
     results_df : pd.DataFrame
         DataFrame from simulation
+    output_dir : str, optional
+        Directory to save output files. If None, saves to current directory.
     """
     time = results_df['time'].values
     U_inf = results_df['U_inf'].values
@@ -290,14 +307,17 @@ def plot_freestream_history(results_df):
     ax.legend(lines1 + lines2, labels1 + labels2, loc='upper right', fontsize=11)
 
     plt.tight_layout()
-    plt.savefig('freestream_history.png', dpi=300, bbox_inches='tight')
-    print("Saved freestream_history.png")
+    filename = 'freestream_history.png'
+    if output_dir:
+        filename = os.path.join(output_dir, filename)
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+    print(f"Saved {filename}")
     plt.close()
 
 
 def create_animation(results_df, cylinders, flow_params, plot_config,
                      output_file='wake_animation.mp4', frame_skip=1,
-                     sample_frames=30, cleanup_frames=True, fps=30):
+                     sample_frames=30, cleanup_frames=True, fps=30, output_dir=None):
     """
     Create animated visualization using optimized frame pre-rendering.
 
@@ -324,6 +344,8 @@ def create_animation(results_df, cylinders, flow_params, plot_config,
         Remove temporary PNG frame files after creating video (default: True)
     fps : int
         Frames per second for output video (default: 30)
+    output_dir : str, optional
+        Directory to save output files. If None, saves to current directory.
 
     Returns
     -------
@@ -334,7 +356,6 @@ def create_animation(results_df, cylinders, flow_params, plot_config,
     Requires ffmpeg to be installed and available in system PATH.
     For GIF output, the pillow writer will be used instead of ffmpeg.
     """
-    import os
     import shutil
 
     snapshot_indices = results_df[results_df['vortex_field'].notna()].index.tolist()
@@ -378,6 +399,9 @@ def create_animation(results_df, cylinders, flow_params, plot_config,
     print(f"Sampled velocity range: [{vel_mag_min:.2f}, {vel_mag_max:.2f}] m/s")
 
     frames_dir = 'temp_animation_frames'
+    if output_dir:
+        frames_dir = os.path.join(output_dir, frames_dir)
+        output_file = os.path.join(output_dir, output_file)
     os.makedirs(frames_dir, exist_ok=True)
 
     for frame_idx, idx in enumerate(tqdm(snapshot_indices, desc="Rendering frames", unit="frame")):
