@@ -269,7 +269,7 @@ if __name__ == "__main__":
     import os
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    cps_heading = 65
+    cps_heading = 65 # SUPER IMPORTANT!!!!!!
 
     segments_file = os.path.join(script_dir, "segments.xlsx")
     velocities_file = os.path.join(script_dir, "output.xlsx")

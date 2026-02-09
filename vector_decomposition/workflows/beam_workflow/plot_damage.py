@@ -353,6 +353,7 @@ def plot_violin_top_bins(df, metocean_path, hs_bins=50, tp_bins=50,
         plt.close()
 
 
+
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     graphs_dir = os.path.join(script_dir, "graphs")
