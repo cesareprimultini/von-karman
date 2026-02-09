@@ -41,7 +41,15 @@
       "WebFetch(domain:www.jafmonline.net)",
       "WebFetch(domain:www.tfd.chalmers.se)",
       "WebFetch(domain:www.cfd-sweden.se)",
-      "WebFetch(domain:gemba.org)"
+      "WebFetch(domain:gemba.org)",
+      "WebFetch(domain:onepetro.org)",
+      "WebFetch(domain:www.sciencedirect.com)",
+      "WebFetch(domain:www.mdpi.com)",
+      "WebFetch(domain:assets-eu.researchsquare.com)",
+      "WebFetch(domain:benthamopen.com)",
+      "WebFetch(domain:www.slac.stanford.edu)",
+      "WebFetch(domain:seaborn.pydata.org)",
+      "WebFetch(domain:rules.dnv.com)"
     ],
     "deny": [],
     "ask": []

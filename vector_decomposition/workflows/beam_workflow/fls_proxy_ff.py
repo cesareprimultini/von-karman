@@ -208,7 +208,7 @@ def compute_fls_proxy_ff(segments_path, velocities_path, output_path, cps_headin
         n_cycles = (3600.0 / Tp) if Tp > 0 else 0
         m = 3
 
-        # Legacy moment-based FLS (crest state)
+        # Moment-based FLS (crest state)
         fls_tdp = n_cycles * crest['M_tdp']**m
         fls_bme = n_cycles * crest['M_bme']**m
         fls_max = n_cycles * crest['M_max']**m
@@ -223,8 +223,8 @@ def compute_fls_proxy_ff(segments_path, velocities_path, output_path, cps_headin
             'time': time_val,
             'M_touchdown': crest['M_tdp'],
             'M_bellmouth': crest['M_bme'],
-            'FLS_proxy_tdp': fls_tdp,
-            'FLS_proxy_bme': fls_bme,
+            'FLS_proxy_tdp': fls_tdp, # change here
+            'FLS_proxy_bme': fls_bme, # change here
             'M_midspan': crest['M_mid'],
             'M_max': crest['M_max'],
             'FLS_proxy_max': fls_max,
