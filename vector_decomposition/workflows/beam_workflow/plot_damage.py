@@ -360,7 +360,7 @@ if __name__ == "__main__":
     os.makedirs(graphs_dir, exist_ok=True)
 
     metocean_file = os.path.join(script_dir, "metocean.xlsx")
-    fls_file = os.path.join(script_dir, "fls_proxy_ff.xlsx")
+    fls_file = os.path.join(script_dir, "fls_proxy_ff_v2.xlsx")
 
     hs_bins = 20
     tp_bins = 20

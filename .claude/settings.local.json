@@ -49,7 +49,9 @@
       "WebFetch(domain:benthamopen.com)",
       "WebFetch(domain:www.slac.stanford.edu)",
       "WebFetch(domain:seaborn.pydata.org)",
-      "WebFetch(domain:rules.dnv.com)"
+      "WebFetch(domain:rules.dnv.com)",
+      "Bash(del \"C:\\\\Projects\\\\von-karman\\\\vector_decomposition\\\\workflows\\\\beam_workflow\\\\test_force_range.py\")",
+      "Bash(del \"C:\\\\Projects\\\\von-karman\\\\vector_decomposition\\\\workflows\\\\beam_workflow\\\\test_uc_effect.py\")"
     ],
     "deny": [],
     "ask": []
