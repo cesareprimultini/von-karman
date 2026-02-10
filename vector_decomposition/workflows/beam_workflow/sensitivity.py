@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from SALib.sample import saltelli
 from SALib.analyze import sobol
+from matplotlib.colors import LogNorm
 
 from airy_wave_velocities import compute_wave_velocities
 from fls_proxy_ff_v2 import (build_segments_3d, _solve_beam_force_range,
@@ -41,16 +42,24 @@ def _setup_beam(segments_path):
     L_beam = np.linalg.norm(beam_vec)
     beam_axis = beam_vec / L_beam
 
-    load_positions = []
-    for seg in segments:
-        a_i = np.dot(seg['midpoint'] - bellmouth, beam_axis)
-        load_positions.append(max(0.0, min(a_i, L_beam)))
+    L_arc = sum(seg['length'] for seg in segments)
 
-    edge_positions = []
+    # Arc-length based load positions (matches fls_proxy_ff_v2.py)
+    load_positions = []
+    arc_running = 0.0
     for seg in segments:
-        edge_positions.append(np.dot(seg['start'] - bellmouth, beam_axis))
-    edge_positions.append(np.dot(segments[-1]['end'] - bellmouth, beam_axis))
-    edge_positions = [max(0.0, min(ep, L_beam)) for ep in edge_positions]
+        arc_to_mid = arc_running + seg['length'] / 2.0
+        a_i = (arc_to_mid / L_arc) * L_beam
+        load_positions.append(max(0.0, min(a_i, L_beam)))
+        arc_running += seg['length']
+
+    # Arc-length based edge positions (segment boundaries)
+    edge_positions = [0.0]
+    arc_running = 0.0
+    for seg in segments:
+        arc_running += seg['length']
+        ep = (arc_running / L_arc) * L_beam
+        edge_positions.append(max(0.0, min(ep, L_beam)))
 
     midspan = L_beam / 2
     eval_points = sorted(set(edge_positions + load_positions + [midspan]))
@@ -217,7 +226,7 @@ def plot_heatmaps(beam, medians, bounds, graphs_dir, n_grid=80):
                     beam
                 )
 
-        im = ax.pcolormesh(v1, v2, Z, shading='auto', cmap='viridis')
+        im = ax.pcolormesh(v1, v2, Z, shading='auto', cmap='viridis', norm=LogNorm(vmin=max(Z[Z > 0].min(), 1e-30)))
         fig.colorbar(im, ax=ax, label='FLS proxy')
         ax.set_xlabel(p1)
         ax.set_ylabel(p2)

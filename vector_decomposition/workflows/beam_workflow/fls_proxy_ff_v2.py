@@ -215,18 +215,24 @@ def compute_fls_proxy_ff(segments_path, velocities_path, output_path, cps_headin
     L_beam = np.linalg.norm(beam_vec)
     beam_axis = beam_vec / L_beam
 
-    # Project segment midpoints onto beam axis (load application points)
+    # Arc-length based load positions: cumulative arc-length to each segment
+    # midpoint, scaled to [0, L_beam].  This avoids compressing loads toward
+    # the supports that chord-projection causes on steep catenary sections.
     load_positions = []
+    arc_running = 0.0
     for seg in segments:
-        a_i = np.dot(seg['midpoint'] - bellmouth, beam_axis)
+        arc_to_mid = arc_running + seg['length'] / 2.0
+        a_i = (arc_to_mid / L_arc) * L_beam
         load_positions.append(max(0.0, min(a_i, L_beam)))
+        arc_running += seg['length']
 
-    # Project segment endpoints onto beam axis (edge positions)
-    edge_positions = []
+    # Arc-length based edge positions (segment boundaries)
+    edge_positions = [0.0]
+    arc_running = 0.0
     for seg in segments:
-        edge_positions.append(np.dot(seg['start'] - bellmouth, beam_axis))
-    edge_positions.append(np.dot(segments[-1]['end'] - bellmouth, beam_axis))
-    edge_positions = [max(0.0, min(ep, L_beam)) for ep in edge_positions]
+        arc_running += seg['length']
+        ep = (arc_running / L_arc) * L_beam
+        edge_positions.append(max(0.0, min(ep, L_beam)))
 
     midspan = L_beam / 2
 
