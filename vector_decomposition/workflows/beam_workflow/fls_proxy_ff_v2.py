@@ -114,7 +114,7 @@ def _segment_drag_force_vector(u_w, sign, wave_dir_vec, curr_vec,
 #  Beam solvers
 # ---------------------------------------------------------------------------
 
-def _solve_beam_unsigned(segments, u_w_all, idx, wave_dir_vec, curr_vec, sign,
+def _solve_beam_unsigned(segments, u_w_all, u_c_all, idx, wave_dir_vec, c_dir_vec, sign,
                          beam_axis, load_positions, edge_positions, eval_points,
                          midspan, L_beam, rho, Cd, D):
     """Solve the beam with unsigned force magnitudes (legacy method).
@@ -125,6 +125,7 @@ def _solve_beam_unsigned(segments, u_w_all, idx, wave_dir_vec, curr_vec, sign,
     loads = []
     for i, seg in enumerate(segments):
         u_w = u_w_all[seg['seg_id']][idx]
+        curr_vec = u_c_all[seg['seg_id']][idx] * c_dir_vec
         F_perp = _segment_drag_force_vector(
             u_w, sign, wave_dir_vec, curr_vec,
             seg['axis'], seg['length'], beam_axis, rho, Cd, D)
@@ -144,7 +145,7 @@ def _solve_beam_unsigned(segments, u_w_all, idx, wave_dir_vec, curr_vec, sign,
     }
 
 
-def _solve_beam_force_range(segments, u_w_all, idx, wave_dir_vec, curr_vec,
+def _solve_beam_force_range(segments, u_w_all, u_c_all, idx, wave_dir_vec, c_dir_vec,
                             beam_axis, load_positions, edge_positions,
                             eval_points, midspan, L_beam, rho, Cd, D):
     """Solve the beam once with FORCE RANGE loads (new method).
@@ -165,6 +166,7 @@ def _solve_beam_force_range(segments, u_w_all, idx, wave_dir_vec, curr_vec,
     loads = []
     for i, seg in enumerate(segments):
         u_w = u_w_all[seg['seg_id']][idx]
+        curr_vec = u_c_all[seg['seg_id']][idx] * c_dir_vec
 
         # drag force vector at wave crest (+u_w)
         F_crest = _segment_drag_force_vector(
@@ -251,12 +253,14 @@ def compute_fls_proxy_ff(segments_path, velocities_path, output_path, cps_headin
     n_rows = len(base_df)
 
     u_w_all = {}
+    u_c_all = {}
     for sheet in sheet_names:
         df = pd.read_excel(velocities_path, sheet_name=sheet)
         u_w_all[sheet] = df['u_w'].values
+        u_c_all[sheet] = df['u_c'].values
 
     # Check for current data
-    has_current = 'Uc' in base_df.columns and not base_df['Uc'].isna().all()
+    has_current = 'u_c' in base_df.columns and not base_df['u_c'].isna().all()
 
     results = []
     for idx in range(n_rows):
@@ -267,16 +271,15 @@ def compute_fls_proxy_ff(segments_path, velocities_path, output_path, cps_headin
         wave_dir_rad = np.radians(wave_dir)
         wave_dir_vec = np.array([np.sin(wave_dir_rad), np.cos(wave_dir_rad), 0])
 
-        # Current vector
-        curr_vec = np.zeros(3)
+        # Current direction unit vector (magnitude varies per segment)
+        c_dir_vec = np.zeros(3)
         if has_current:
-            u_c = base_df.loc[idx, 'Uc']
             c_dir_rad = np.radians(base_df.loc[idx, 'current_dir'])
-            curr_vec = u_c * np.array([np.sin(c_dir_rad), np.cos(c_dir_rad), 0])
+            c_dir_vec = np.array([np.sin(c_dir_rad), np.cos(c_dir_rad), 0])
 
         common_args = dict(
-            segments=segments, u_w_all=u_w_all, idx=idx,
-            wave_dir_vec=wave_dir_vec, curr_vec=curr_vec,
+            segments=segments, u_w_all=u_w_all, u_c_all=u_c_all, idx=idx,
+            wave_dir_vec=wave_dir_vec, c_dir_vec=c_dir_vec,
             beam_axis=beam_axis, load_positions=load_positions,
             edge_positions=edge_positions, eval_points=eval_points,
             midspan=midspan, L_beam=L_beam, rho=rho, Cd=Cd, D=D

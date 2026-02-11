@@ -333,7 +333,7 @@ def plot_violin_top_bins(df, metocean_path, hs_bins=50, tp_bins=50,
     Hs-Tp bins ranked by cumulative BME FLS proxy.  One figure per variable.
     """
     met_df = pd.read_excel(metocean_path, sheet_name='metocean')
-    plot_vars = ['wave_dir', 'current_dir', 'water_level', 'Uc']
+    plot_vars = ['wave_dir', 'current_dir', 'water_level', 'Uc_DA']
     merge_cols = ['time'] + [c for c in plot_vars if c not in df.columns]
     if len(merge_cols) > 1:
         df = pd.merge(df, met_df[merge_cols], on='time', how='left')
@@ -366,7 +366,7 @@ def plot_violin_top_bins(df, metocean_path, hs_bins=50, tp_bins=50,
         'wave_dir': ('Wave Direction', '[deg]'),
         'current_dir': ('Current Direction', '[deg]'),
         'water_level': ('Water Level', '[m]'),
-        'Uc': ('Current Speed', '[m/s]'),
+        'Uc_DA': ('Current Speed (DA)', '[m/s]'),
     }
 
     # Circular center for directional variables (puts this degree at mid-axis)
@@ -440,70 +440,6 @@ def plot_violin_top_bins(df, metocean_path, hs_bins=50, tp_bins=50,
 
 
 
-def plot_miner_damage(df, hs_bins=10, tp_bins=10, design_life=25,
-                      graphs_dir='graphs'):
-    """Heatmap of cumulative Miner's rule damage per Hs-Tp bin.
-
-    D = sum( n_i / N_f(strain_range_i) )  scaled to design_life years.
-    N_f comes from Moreno (2021) irregular surface S-N curve.
-    """
-    variables = [
-        ('Strain_Range_tdp', 'Miner Damage at TDP'),
-        ('Strain_Range_bme', 'Miner Damage at BME'),
-    ]
-
-    df = df.copy()
-
-    # Scale from hindcast duration to design life (same as plot_strain_n_curve)
-    hindcast_hours = (pd.to_datetime(df['time']).max()
-                      - pd.to_datetime(df['time']).min()).total_seconds() / 3600
-    hindcast_years = hindcast_hours / 8766  # 365.25 days
-    life_scale = design_life / hindcast_years
-
-    for strain_col, _ in variables:
-        nf = _nf_moreno_irregular(df[strain_col].values)
-        n_cycles = np.where(df['Tp'] > 0, 3600.0 / df['Tp'], 0.0) * life_scale
-        df[f'damage_{strain_col}'] = n_cycles / nf
-
-    hs_edges = np.linspace(df['Hs'].min(), df['Hs'].max(), hs_bins + 1)
-    tp_edges = np.linspace(df['Tp'].min(), df['Tp'].max(), tp_bins + 1)
-
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-    for ax, (strain_col, title) in zip(axes, variables):
-        dmg_col = f'damage_{strain_col}'
-        H = np.zeros((tp_bins, hs_bins))
-        for i in range(hs_bins):
-            for j in range(tp_bins):
-                mask = (
-                    (df['Hs'] >= hs_edges[i]) & (df['Hs'] < hs_edges[i+1]) &
-                    (df['Tp'] >= tp_edges[j]) & (df['Tp'] < tp_edges[j+1])
-                )
-                H[j, i] = df.loc[mask, dmg_col].sum()
-
-        H_plot = np.where(H > 0, H, np.nan)
-        im = ax.imshow(H_plot, origin='lower', aspect='auto',
-                       extent=[hs_edges[0], hs_edges[-1],
-                               tp_edges[0], tp_edges[-1]],
-                       norm=PowerNorm(gamma=0.4), cmap='plasma')
-        ax.set_xlabel('Hs [m]')
-        ax.set_ylabel('Tp [s]')
-        ax.set_title(title)
-        plt.colorbar(im, ax=ax, label='Cumulative damage D')
-
-    total_tdp = df['damage_Strain_Range_tdp'].sum()
-    total_bme = df['damage_Strain_Range_bme'].sum()
-    fig.suptitle(
-        f"Miner's Rule (Moreno 2021 irregular) - {design_life}-year design life\n"
-        f"Total damage:  TDP = {total_tdp:.4e},  BME = {total_bme:.4e}"
-        f"  (D >= 1.0 = failure)",
-        fontsize=11)
-    plt.tight_layout()
-    plt.savefig(os.path.join(graphs_dir, 'miner_damage.png'),
-                dpi=150, bbox_inches='tight')
-    plt.close()
-
-
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     graphs_dir = os.path.join(script_dir, "graphs")
@@ -523,9 +459,6 @@ if __name__ == "__main__":
     plot_frequency(df, hs_bins, tp_bins, graphs_dir)
     plot_heatmaps(df, hs_bins, tp_bins, graphs_dir=graphs_dir)
     plot_damage_roses(df, n_sectors, graphs_dir)
-
-    plot_miner_damage(df, hs_bins, tp_bins, graphs_dir=graphs_dir)
-    print("Saved: miner_damage.png")
 
     plot_pareto_bins(df, hs_bins, tp_bins, n_top=30, graphs_dir=graphs_dir)
     print("Saved: ranked_fls_bins.png")

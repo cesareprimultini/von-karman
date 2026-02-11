@@ -18,7 +18,7 @@ from SALib.sample import saltelli
 from SALib.analyze import sobol
 from matplotlib.colors import LogNorm
 
-from airy_wave_velocities import compute_wave_velocities
+from airy_wave_velocities import compute_wave_velocities, compute_current_velocity
 from fls_proxy_ff_v2 import (build_segments_3d, _solve_beam_force_range,
                               get_curvature_from_moment)
 from damage import _nf_moreno_irregular
@@ -31,7 +31,7 @@ CD = 1.2
 WATER_DEPTH = 53.5
 # M_FATIGUE = 3
 
-PARAM_NAMES = ['Hs', 'Tp', 'wave_dir', 'current_dir', 'Uc', 'water_level']
+PARAM_NAMES = ['Hs', 'Tp', 'wave_dir', 'current_dir', 'Uc_DA', 'water_level']
 
 
 def _setup_beam(segments_path):
@@ -73,25 +73,28 @@ def _setup_beam(segments_path):
     )
 
 
-def _evaluate_fls(Hs, Tp, wave_dir, current_dir, Uc, water_level, beam):
+def _evaluate_fls(Hs, Tp, wave_dir, current_dir, Uc_DA, water_level, beam):
     """Run Airy + beam model for one parameter set, return FLS proxy."""
     d = WATER_DEPTH + water_level
 
-    # u_w per segment via Airy wave theory
+    # u_w and u_c per segment
     u_w_all = {}
+    u_c_all = {}
     for z_mid, seg_id in zip(beam['z_mids'], beam['seg_ids']):
         u_w, _, _, _ = compute_wave_velocities(Hs, Tp, d, z_mid)
         u_w_all[seg_id] = np.array([u_w])
+        u_c = compute_current_velocity(Uc_DA, z_mid, d)
+        u_c_all[seg_id] = np.array([u_c])
 
     wave_rad = np.radians(wave_dir)
     wave_dir_vec = np.array([np.sin(wave_rad), np.cos(wave_rad), 0])
 
     c_rad = np.radians(current_dir)
-    curr_vec = Uc * np.array([np.sin(c_rad), np.cos(c_rad), 0])
+    c_dir_vec = np.array([np.sin(c_rad), np.cos(c_rad), 0])
 
     rng = _solve_beam_force_range(
-        segments=beam['segments'], u_w_all=u_w_all, idx=0,
-        wave_dir_vec=wave_dir_vec, curr_vec=curr_vec,
+        segments=beam['segments'], u_w_all=u_w_all, u_c_all=u_c_all, idx=0,
+        wave_dir_vec=wave_dir_vec, c_dir_vec=c_dir_vec,
         beam_axis=beam['beam_axis'],
         load_positions=beam['load_positions'],
         edge_positions=beam['edge_positions'],
@@ -122,7 +125,7 @@ def _get_bounds(metocean_path):
     # safety floors
     bounds[0][0] = max(bounds[0][0], 0.05)  # Hs > 0
     bounds[1][0] = max(bounds[1][0], 1.0)   # Tp > 1s
-    bounds[4][0] = max(bounds[4][0], 0.0)   # Uc >= 0
+    bounds[4][0] = max(bounds[4][0], 0.0)   # Uc_DA >= 0
 
     return bounds
 
@@ -158,13 +161,17 @@ def run_sobol(segments_path, metocean_path, N=1024):
 def _get_baselines(metocean_path, percentile=0.9):
     """Baseline value for each parameter (used for 2D sweeps).
 
-    Uses the given percentile for Hs so that current/direction effects
-    are visible (at median Hs strains are too small for current to matter).
-    All other parameters use the median.
+    Uses the given percentile for Hs, Tp and Uc_DA so that direction
+    effects are visible in the heatmaps.  At median Tp the wave velocity
+    at the seabed is negligible (exponential depth decay), which makes
+    all direction heatmaps uniformly zero.  Conditioning on storm-like
+    Tp and Uc_DA reveals the physical sensitivity.
     """
     met = pd.read_excel(metocean_path, sheet_name='metocean')
     baselines = {col: met[col].median() for col in PARAM_NAMES}
     baselines['Hs'] = met['Hs'].quantile(percentile)
+    baselines['Tp'] = met['Tp'].quantile(percentile)
+    baselines['Uc_DA'] = met['Uc_DA'].quantile(percentile)
     return baselines
 
 
@@ -202,16 +209,16 @@ def plot_sobol(Si, graphs_dir):
 
 
 def plot_heatmaps(beam, medians, bounds, graphs_dir, n_grid=80):
-    """2D heatmaps of FLS for key parameter pairs, all others held at median."""
+    """2D heatmaps of FLS for key parameter pairs, all others held at baseline."""
 
     # pairs that capture the most important interactions
     pairs = [
         ('Hs',          'wave_dir',     'Wave height vs direction'),
-        ('Uc',          'current_dir',  'Current magnitude vs direction'),
+        ('Uc_DA',       'current_dir',  'Current magnitude vs direction'),
         ('wave_dir',    'current_dir',  'Wave vs current direction'),
-        ('Hs',          'Uc',           'Wave height vs current magnitude'),
+        ('Hs',          'Uc_DA',        'Wave height vs current magnitude'),
         ('Hs',          'Tp',           'Wave height vs period'),
-        ('Uc',          'wave_dir',     'Current magnitude vs wave direction'),
+        ('Uc_DA',       'wave_dir',     'Current magnitude vs wave direction'),
     ]
 
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
@@ -231,7 +238,7 @@ def plot_heatmaps(beam, medians, bounds, graphs_dir, n_grid=80):
                 params[p2] = val2
                 Z[j, k] = _evaluate_fls(
                     params['Hs'], params['Tp'], params['wave_dir'],
-                    params['current_dir'], params['Uc'], params['water_level'],
+                    params['current_dir'], params['Uc_DA'], params['water_level'],
                     beam
                 )
 
@@ -255,10 +262,7 @@ def plot_heatmaps(beam, medians, bounds, graphs_dir, n_grid=80):
                 axis_fn((CPS_HEADING + 90) % 360, color='lime', ls=':', lw=1, label=f'perp to pipe')
                 axis_fn((CPS_HEADING + 270) % 360, color='lime', ls=':', lw=1)
 
-# FLS sensitivity heatmaps (other params at median)
-# cyan dashed = inline with pipe, green dotted = perpendicular to pipe
-
-    plt.title('FLS sensitivity heatmaps')
+    fig.suptitle('FLS sensitivity heatmaps (other params at storm baseline)', y=1.01)
     plt.tight_layout()
     out = os.path.join(graphs_dir, 'sensitivity_heatmaps.png')
     plt.savefig(out, dpi=150, bbox_inches='tight')
@@ -335,7 +339,7 @@ if __name__ == '__main__':
     baselines = _get_baselines(metocean_file, percentile=0.9)
     bounds = _get_bounds(metocean_file)
 
-    print(f"\nBaseline values used for heatmaps (Hs at 90th percentile):")
+    print(f"\nBaseline values used for heatmaps (Hs/Tp/Uc_DA at 90th percentile):")
     for name in PARAM_NAMES:
         print(f"  {name:<15} {baselines[name]:.3f}")
 
