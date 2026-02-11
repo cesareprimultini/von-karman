@@ -8,6 +8,26 @@ import seaborn as sns
 MOMENT_SCALE = 1e-6   # divide moments by this (show in MN·m)
 FLS_SCALE = 1e-12     # divide FLS by this
 
+# Moreno (2021) irregular S-N curve: eps_range = 2*(0.0025*N^-0.18 + 66.0*N^-1.153)
+# Precompute lookup table for numerical inversion (eps -> N_f)
+_N_LUT = np.logspace(0, 12, 5000)
+_EPS_LUT = 2 * (0.0025 * _N_LUT**-0.18 + 66.0 * _N_LUT**-1.153)
+
+
+def _nf_moreno_irregular(strain_range):
+    """Cycles to failure from Moreno (2021) irregular surface S-N curve.
+
+    Uses lookup-table interpolation since the curve (sum of two power laws)
+    is not analytically invertible.
+    """
+    sr = np.asarray(strain_range, dtype=float)
+    sr = np.atleast_1d(sr)
+    nf = np.full_like(sr, np.inf)
+    mask = sr > 0
+    # _EPS_LUT is decreasing with N; flip for np.interp (needs increasing xp)
+    nf[mask] = np.interp(sr[mask], _EPS_LUT[::-1], _N_LUT[::-1])
+    return nf
+
 
 def load_data(metocean_path, fls_path):
     """Load FLS proxy results and merge with metocean data."""
@@ -45,16 +65,30 @@ def plot_frequency(df, hs_bins=10, tp_bins=10, graphs_dir='graphs'):
     plt.savefig(os.path.join(graphs_dir, 'frequency.png'), dpi=150)
     plt.close()
 
-def plot_heatmaps(df, hs_bins=10, tp_bins=10, graphs_dir='graphs'):
-    variables = [
-        ('M_touchdown', f'Moment at TDP [×{MOMENT_SCALE:.0e}]', MOMENT_SCALE),
-        ('M_bellmouth', f'Moment at BME [×{MOMENT_SCALE:.0e}]', MOMENT_SCALE),
-        ('FLS_Proxy_tdp', f'FLS Proxy at TDP [×{FLS_SCALE:.0e}]', FLS_SCALE),
-        ('FLS_Proxy_bme', f'FLS Proxy at BME [×{FLS_SCALE:.0e}]', FLS_SCALE)
-    ]
-
+def plot_heatmaps(df, hs_bins=10, tp_bins=10, design_life=25,
+                  graphs_dir='graphs'):
     hs_edges = np.linspace(df['Hs'].min(), df['Hs'].max(), hs_bins + 1)
     tp_edges = np.linspace(df['Tp'].min(), df['Tp'].max(), tp_bins + 1)
+
+    # Precompute Miner damage columns
+    df = df.copy()
+    hindcast_hours = (pd.to_datetime(df['time']).max()
+                      - pd.to_datetime(df['time']).min()).total_seconds() / 3600
+    hindcast_years = hindcast_hours / 8766
+    life_scale = design_life / hindcast_years
+
+    for loc in ('tdp', 'bme'):
+        strain_col = f'Strain_Range_{loc}'
+        nf = _nf_moreno_irregular(df[strain_col].values)
+        n_cycles = np.where(df['Tp'] > 0, 3600.0 / df['Tp'], 0.0) * life_scale
+        df[f'miner_{loc}'] = n_cycles / nf
+
+    variables = [
+        ('FLS_Proxy_tdp', f'FLS Proxy at TDP [{FLS_SCALE:.0e}]', FLS_SCALE),
+        ('FLS_Proxy_bme', f'FLS Proxy at BME [{FLS_SCALE:.0e}]', FLS_SCALE),
+        ('miner_tdp', f'Miner Damage at TDP ({design_life}-yr)', 1.0),
+        ('miner_bme', f'Miner Damage at BME ({design_life}-yr)', 1.0),
+    ]
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
     axes = axes.flatten()
@@ -69,8 +103,10 @@ def plot_heatmaps(df, hs_bins=10, tp_bins=10, graphs_dir='graphs'):
                 )
                 H[j, i] = df.loc[mask, var].sum() / scale
 
-        im = ax.imshow(H, origin='lower', aspect='auto',
-                       extent=[hs_edges[0], hs_edges[-1], tp_edges[0], tp_edges[-1]],
+        H_plot = np.where(H > 0, H, np.nan)
+        im = ax.imshow(H_plot, origin='lower', aspect='auto',
+                       extent=[hs_edges[0], hs_edges[-1],
+                               tp_edges[0], tp_edges[-1]],
                        norm=PowerNorm(gamma=0.4), cmap='plasma')
         ax.set_xlabel('Hs [m]')
         ax.set_ylabel('Tp [s]')
@@ -164,6 +200,56 @@ def plot_pareto_bins(df, hs_bins=20, tp_bins=20, n_top=30,
 
     plt.tight_layout()
     plt.savefig(os.path.join(graphs_dir, 'ranked_fls_bins.png'),
+                dpi=150, bbox_inches='tight')
+    plt.close()
+
+
+def plot_pareto_miner(df, hs_bins=20, tp_bins=20, n_top=30,
+                      design_life=25, graphs_dir='graphs'):
+    """
+    Pareto chart of Hs-Tp bins ranked by cumulative Miner damage (BME),
+    with a cumulative-% line.  Same layout as plot_pareto_bins.
+    """
+    df = df.copy()
+    hindcast_hours = (pd.to_datetime(df['time']).max()
+                      - pd.to_datetime(df['time']).min()).total_seconds() / 3600
+    hindcast_years = hindcast_hours / 8766
+    life_scale = design_life / hindcast_years
+
+    nf = _nf_moreno_irregular(df['Strain_Range_bme'].values)
+    n_cycles = np.where(df['Tp'] > 0, 3600.0 / df['Tp'], 0.0) * life_scale
+    df['miner_bme'] = n_cycles / nf
+
+    df, bin_fls = _rank_bins(df, 'miner_bme', hs_bins, tp_bins)
+
+    total = bin_fls['miner_bme'].sum()
+    bin_fls['pct'] = 100.0 * bin_fls['miner_bme'] / total
+    bin_fls['cum_pct'] = bin_fls['pct'].cumsum()
+    bin_fls['hs_mid'] = bin_fls['hs_bin'].apply(lambda b: b.mid)
+    bin_fls['tp_mid'] = bin_fls['tp_bin'].apply(lambda b: b.mid)
+
+    top = bin_fls.head(n_top)
+    top_labels = [f"Hs={r.hs_mid:.1f} Tp={r.tp_mid:.1f}"
+                  for _, r in top.iterrows()]
+
+    fig, ax1 = plt.subplots(figsize=(max(12, n_top * 0.45), 6))
+
+    colors = sns.cubehelix_palette(n_top, rot=-.25, light=.7)
+    ax1.bar(range(n_top), top['pct'], color=colors, edgecolor='k',
+            linewidth=0.4)
+    ax1.set_xticks(range(n_top))
+    ax1.set_xticklabels(top_labels, rotation=70, ha='right', fontsize=7)
+    ax1.set_ylabel('Bin contribution to total Miner damage [%]')
+    ax1.set_title(f'Hs-Tp bins ranked by Miner damage (BME, {design_life}-yr)')
+
+    ax2 = ax1.twinx()
+    ax2.plot(range(n_top), top['cum_pct'].values, 'k-o', markersize=4)
+    ax2.set_ylabel('Cumulative [%]')
+    ax2.set_ylim(0, 105)
+    ax2.axhline(80, color='grey', ls='--', lw=0.8, alpha=0.6)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(graphs_dir, 'ranked_miner_bins.png'),
                 dpi=150, bbox_inches='tight')
     plt.close()
 
@@ -354,6 +440,70 @@ def plot_violin_top_bins(df, metocean_path, hs_bins=50, tp_bins=50,
 
 
 
+def plot_miner_damage(df, hs_bins=10, tp_bins=10, design_life=25,
+                      graphs_dir='graphs'):
+    """Heatmap of cumulative Miner's rule damage per Hs-Tp bin.
+
+    D = sum( n_i / N_f(strain_range_i) )  scaled to design_life years.
+    N_f comes from Moreno (2021) irregular surface S-N curve.
+    """
+    variables = [
+        ('Strain_Range_tdp', 'Miner Damage at TDP'),
+        ('Strain_Range_bme', 'Miner Damage at BME'),
+    ]
+
+    df = df.copy()
+
+    # Scale from hindcast duration to design life (same as plot_strain_n_curve)
+    hindcast_hours = (pd.to_datetime(df['time']).max()
+                      - pd.to_datetime(df['time']).min()).total_seconds() / 3600
+    hindcast_years = hindcast_hours / 8766  # 365.25 days
+    life_scale = design_life / hindcast_years
+
+    for strain_col, _ in variables:
+        nf = _nf_moreno_irregular(df[strain_col].values)
+        n_cycles = np.where(df['Tp'] > 0, 3600.0 / df['Tp'], 0.0) * life_scale
+        df[f'damage_{strain_col}'] = n_cycles / nf
+
+    hs_edges = np.linspace(df['Hs'].min(), df['Hs'].max(), hs_bins + 1)
+    tp_edges = np.linspace(df['Tp'].min(), df['Tp'].max(), tp_bins + 1)
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    for ax, (strain_col, title) in zip(axes, variables):
+        dmg_col = f'damage_{strain_col}'
+        H = np.zeros((tp_bins, hs_bins))
+        for i in range(hs_bins):
+            for j in range(tp_bins):
+                mask = (
+                    (df['Hs'] >= hs_edges[i]) & (df['Hs'] < hs_edges[i+1]) &
+                    (df['Tp'] >= tp_edges[j]) & (df['Tp'] < tp_edges[j+1])
+                )
+                H[j, i] = df.loc[mask, dmg_col].sum()
+
+        H_plot = np.where(H > 0, H, np.nan)
+        im = ax.imshow(H_plot, origin='lower', aspect='auto',
+                       extent=[hs_edges[0], hs_edges[-1],
+                               tp_edges[0], tp_edges[-1]],
+                       norm=PowerNorm(gamma=0.4), cmap='plasma')
+        ax.set_xlabel('Hs [m]')
+        ax.set_ylabel('Tp [s]')
+        ax.set_title(title)
+        plt.colorbar(im, ax=ax, label='Cumulative damage D')
+
+    total_tdp = df['damage_Strain_Range_tdp'].sum()
+    total_bme = df['damage_Strain_Range_bme'].sum()
+    fig.suptitle(
+        f"Miner's Rule (Moreno 2021 irregular) - {design_life}-year design life\n"
+        f"Total damage:  TDP = {total_tdp:.4e},  BME = {total_bme:.4e}"
+        f"  (D >= 1.0 = failure)",
+        fontsize=11)
+    plt.tight_layout()
+    plt.savefig(os.path.join(graphs_dir, 'miner_damage.png'),
+                dpi=150, bbox_inches='tight')
+    plt.close()
+
+
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     graphs_dir = os.path.join(script_dir, "graphs")
@@ -371,11 +521,17 @@ if __name__ == "__main__":
     print(df.head())
 
     plot_frequency(df, hs_bins, tp_bins, graphs_dir)
-    plot_heatmaps(df, hs_bins, tp_bins, graphs_dir)
+    plot_heatmaps(df, hs_bins, tp_bins, graphs_dir=graphs_dir)
     plot_damage_roses(df, n_sectors, graphs_dir)
+
+    plot_miner_damage(df, hs_bins, tp_bins, graphs_dir=graphs_dir)
+    print("Saved: miner_damage.png")
 
     plot_pareto_bins(df, hs_bins, tp_bins, n_top=30, graphs_dir=graphs_dir)
     print("Saved: ranked_fls_bins.png")
+
+    plot_pareto_miner(df, hs_bins, tp_bins, n_top=30, graphs_dir=graphs_dir)
+    print("Saved: ranked_miner_bins.png")
 
     plot_strain_n_curve(df, graphs_dir=graphs_dir)
     print("Saved: strain_n_curve.png")

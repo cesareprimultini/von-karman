@@ -21,6 +21,7 @@ from matplotlib.colors import LogNorm
 from airy_wave_velocities import compute_wave_velocities
 from fls_proxy_ff_v2 import (build_segments_3d, _solve_beam_force_range,
                               get_curvature_from_moment)
+from damage import _nf_moreno_irregular
 
 # --- constants (match fls_proxy_ff_v2.py) ---
 CPS_HEADING = 65
@@ -28,7 +29,7 @@ D_PIPE = 0.251
 RHO = 1025
 CD = 1.2
 WATER_DEPTH = 53.5
-M_FATIGUE = 3
+# M_FATIGUE = 3
 
 PARAM_NAMES = ['Hs', 'Tp', 'wave_dir', 'current_dir', 'Uc', 'water_level']
 
@@ -101,7 +102,8 @@ def _evaluate_fls(Hs, Tp, wave_dir, current_dir, Uc, water_level, beam):
 
     strain_range = get_curvature_from_moment(rng['M_range_max']) * (D_PIPE / 2.0)
     n_cycles = 3600.0 / Tp
-    return n_cycles * strain_range ** M_FATIGUE
+    nf = _nf_moreno_irregular(strain_range)[0]
+    return n_cycles / nf
 
 
 def _get_bounds(metocean_path):
@@ -153,10 +155,17 @@ def run_sobol(segments_path, metocean_path, N=1024):
     return Si
 
 
-def _get_medians(metocean_path):
-    """Median value for each parameter (used as baseline for 2D sweeps)."""
+def _get_baselines(metocean_path, percentile=0.9):
+    """Baseline value for each parameter (used for 2D sweeps).
+
+    Uses the given percentile for Hs so that current/direction effects
+    are visible (at median Hs strains are too small for current to matter).
+    All other parameters use the median.
+    """
     met = pd.read_excel(metocean_path, sheet_name='metocean')
-    return {col: met[col].median() for col in PARAM_NAMES}
+    baselines = {col: met[col].median() for col in PARAM_NAMES}
+    baselines['Hs'] = met['Hs'].quantile(percentile)
+    return baselines
 
 
 def plot_sobol(Si, graphs_dir):
@@ -226,8 +235,13 @@ def plot_heatmaps(beam, medians, bounds, graphs_dir, n_grid=80):
                     beam
                 )
 
-        im = ax.pcolormesh(v1, v2, Z, shading='auto', cmap='viridis', norm=LogNorm(vmin=max(Z[Z > 0].min(), 1e-30)))
-        fig.colorbar(im, ax=ax, label='FLS proxy')
+        Z_pos = Z[Z > 0]
+        if Z_pos.size > 0:
+            norm = LogNorm(vmin=Z_pos.min(), vmax=Z_pos.max())
+        else:
+            norm = None
+        im = ax.pcolormesh(v1, v2, Z, shading='auto', cmap='viridis', norm=norm)
+        fig.colorbar(im, ax=ax, label='Miner damage')
         ax.set_xlabel(p1)
         ax.set_ylabel(p2)
         ax.set_title(title)
@@ -318,15 +332,15 @@ if __name__ == '__main__':
 
     # --- 2D heatmaps ---
     beam = _setup_beam(segments_file)
-    medians = _get_medians(metocean_file)
+    baselines = _get_baselines(metocean_file, percentile=0.9)
     bounds = _get_bounds(metocean_file)
 
-    print(f"\nMedian values used for heatmaps:")
+    print(f"\nBaseline values used for heatmaps (Hs at 90th percentile):")
     for name in PARAM_NAMES:
-        print(f"  {name:<15} {medians[name]:.3f}")
+        print(f"  {name:<15} {baselines[name]:.3f}")
 
     print("\nComputing heatmaps...")
-    plot_heatmaps(beam, medians, bounds, graphs_dir)
+    plot_heatmaps(beam, baselines, bounds, graphs_dir)
 
     # --- input data plots ---
     plot_cross_correlation(metocean_file, graphs_dir)

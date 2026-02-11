@@ -5,10 +5,14 @@ from scipy.optimize import fsolve
 g = 9.81
 
 def solve_dispersion(T, d):
+    omega = 2 * np.pi / T
     def dispersion(k):
-        return (2*np.pi/T)**2 - g*k*np.tanh(k*d)
-    k = fsolve(dispersion, 0.01)[0]
-    L = 2*np.pi/k
+        return omega**2 - g * k * np.tanh(k * d)
+    # INITIAL GUESS: deep-water approx (swap with 0.01 or 0 if needed)
+    k0 = omega**2 / g
+    # k0 = 0.01
+    k = fsolve(dispersion, k0)[0]
+    L = 2 * np.pi / k
     return k, L
 
 def compute_wave_velocities(Hs, Tp, d, z_seabed):
