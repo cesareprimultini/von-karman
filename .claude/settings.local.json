@@ -51,7 +51,11 @@
       "WebFetch(domain:seaborn.pydata.org)",
       "WebFetch(domain:rules.dnv.com)",
       "Bash(del \"C:\\\\Projects\\\\von-karman\\\\vector_decomposition\\\\workflows\\\\beam_workflow\\\\test_force_range.py\")",
-      "Bash(del \"C:\\\\Projects\\\\von-karman\\\\vector_decomposition\\\\workflows\\\\beam_workflow\\\\test_uc_effect.py\")"
+      "Bash(del \"C:\\\\Projects\\\\von-karman\\\\vector_decomposition\\\\workflows\\\\beam_workflow\\\\test_uc_effect.py\")",
+      "WebFetch(domain:www.orcina.com)",
+      "WebFetch(domain:oa.upm.es)",
+      "WebFetch(domain:erules.veristar.com)",
+      "WebFetch(domain:webthesis.biblio.polito.it)"
     ],
     "deny": [],
     "ask": []

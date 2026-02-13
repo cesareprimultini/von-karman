@@ -19,11 +19,10 @@ from SALib.analyze import sobol
 from matplotlib.colors import LogNorm
 
 from airy_wave_velocities import compute_wave_velocities, compute_current_velocity
-from fls_proxy_ff_v2 import (build_segments_3d, _solve_beam_force_range,
-                              get_curvature_from_moment)
+from fls_proxy_ff_v2 import (build_segments_3d, _solve_beam_force_range, get_curvature_from_moment)
 from damage import _nf_moreno_irregular
 
-# --- constants (match fls_proxy_ff_v2.py) ---
+# --- constants ---
 CPS_HEADING = 65
 D_PIPE = 0.251
 RHO = 1025

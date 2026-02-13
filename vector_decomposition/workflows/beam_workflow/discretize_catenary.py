@@ -3,23 +3,19 @@ import numpy as np
 
 
 def _compute_curvature_weights(x, z):
-    """Compute a weight at each point: 1 + |curvature|, normalized by arc length.
-
-    Curved regions get higher weight, so segment edges cluster there.
-    Flat regions still get weight >= 1 so they aren't starved of segments.
-    """
-    # Arc length between consecutive points
+    """Compute a weight at each point: 1 + |curvature|, normalized by arc length."""
+    # arc length between consecutive points
     ds = np.sqrt(np.diff(x)**2 + np.diff(z)**2)
 
-    # Curvature via second derivative (finite differences)
+    # curvature via second derivative
     dz_dx = np.gradient(z, x)
     d2z_dx2 = np.gradient(dz_dx, x)
     curvature = np.abs(d2z_dx2) / (1 + dz_dx**2)**1.5
 
-    # Weight: baseline 1 + curvature (so flat parts still get segments)
+    # weight: 1 + curvature (so flat parts still get segments)
     w = 1.0 + curvature / (curvature.mean() + 1e-12)
 
-    # Cumulative weighted arc length (trapezoidal integration)
+    # cumulative weighted arc length (basiclly trapezoidal integration)
     w_mid = (w[:-1] + w[1:]) / 2.0
     W = np.concatenate([[0], np.cumsum(w_mid * ds)])
 
@@ -51,7 +47,7 @@ def discretize_catenary(catenary_path, output_path, n_segments, tdp=None, adapti
         W = _compute_curvature_weights(x, z)
         W_edges = np.linspace(0, W[-1], n_segments + 1)
         x_edges = np.interp(W_edges, W, x)
-        # Force exact endpoints
+        # forcing exact endpoints just to be sure
         x_edges[0] = x_min
         x_edges[-1] = x_max
         mode = "adaptive"

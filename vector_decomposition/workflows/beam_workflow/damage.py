@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import PowerNorm
+from matplotlib.ticker import FuncFormatter
 import seaborn as sns
 
 MOMENT_SCALE = 1e-6   # divide moments by this (show in MN·m)
@@ -27,6 +28,16 @@ def _nf_moreno_irregular(strain_range):
     # _EPS_LUT is decreasing with N; flip for np.interp (needs increasing xp)
     nf[mask] = np.interp(sr[mask], _EPS_LUT[::-1], _N_LUT[::-1])
     return nf
+
+
+def _miner_damage(df, strain_col, design_life=25):
+    """Compute per-row Miner damage scaled to *design_life* years."""
+    hindcast_hours = (pd.to_datetime(df['time']).max()
+                      - pd.to_datetime(df['time']).min()).total_seconds() / 3600
+    life_scale = design_life / (hindcast_hours / 8766)
+    nf = _nf_moreno_irregular(df[strain_col].values)
+    n_cycles = np.where(df['Tp'] > 0, 3600.0 / df['Tp'], 0.0) * life_scale
+    return n_cycles / nf
 
 
 def load_data(metocean_path, fls_path):
@@ -70,24 +81,15 @@ def plot_heatmaps(df, hs_bins=10, tp_bins=10, design_life=25,
     hs_edges = np.linspace(df['Hs'].min(), df['Hs'].max(), hs_bins + 1)
     tp_edges = np.linspace(df['Tp'].min(), df['Tp'].max(), tp_bins + 1)
 
-    # Precompute Miner damage columns
     df = df.copy()
-    hindcast_hours = (pd.to_datetime(df['time']).max()
-                      - pd.to_datetime(df['time']).min()).total_seconds() / 3600
-    hindcast_years = hindcast_hours / 8766
-    life_scale = design_life / hindcast_years
-
     for loc in ('tdp', 'bme'):
-        strain_col = f'Strain_Range_{loc}'
-        nf = _nf_moreno_irregular(df[strain_col].values)
-        n_cycles = np.where(df['Tp'] > 0, 3600.0 / df['Tp'], 0.0) * life_scale
-        df[f'miner_{loc}'] = n_cycles / nf
+        df[f'miner_{loc}'] = _miner_damage(df, f'Strain_Range_{loc}', design_life)
 
     variables = [
         ('FLS_Proxy_tdp', f'FLS Proxy at TDP [{FLS_SCALE:.0e}]', FLS_SCALE),
         ('FLS_Proxy_bme', f'FLS Proxy at BME [{FLS_SCALE:.0e}]', FLS_SCALE),
-        ('miner_tdp', f'Miner Damage at TDP ({design_life}-yr)', 1.0),
-        ('miner_bme', f'Miner Damage at BME ({design_life}-yr)', 1.0),
+        ('miner_tdp', f'Miner Damage at TDP (normalised to {design_life}-yr)', 1.0),
+        ('miner_bme', f'Miner Damage at BME (normalised to {design_life}-yr)', 1.0),
     ]
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
@@ -211,14 +213,7 @@ def plot_pareto_miner(df, hs_bins=20, tp_bins=20, n_top=30,
     with a cumulative-% line.  Same layout as plot_pareto_bins.
     """
     df = df.copy()
-    hindcast_hours = (pd.to_datetime(df['time']).max()
-                      - pd.to_datetime(df['time']).min()).total_seconds() / 3600
-    hindcast_years = hindcast_hours / 8766
-    life_scale = design_life / hindcast_years
-
-    nf = _nf_moreno_irregular(df['Strain_Range_bme'].values)
-    n_cycles = np.where(df['Tp'] > 0, 3600.0 / df['Tp'], 0.0) * life_scale
-    df['miner_bme'] = n_cycles / nf
+    df['miner_bme'] = _miner_damage(df, 'Strain_Range_bme', design_life)
 
     df, bin_fls = _rank_bins(df, 'miner_bme', hs_bins, tp_bins)
 
@@ -240,7 +235,7 @@ def plot_pareto_miner(df, hs_bins=20, tp_bins=20, n_top=30,
     ax1.set_xticks(range(n_top))
     ax1.set_xticklabels(top_labels, rotation=70, ha='right', fontsize=7)
     ax1.set_ylabel('Bin contribution to total Miner damage [%]')
-    ax1.set_title(f'Hs-Tp bins ranked by Miner damage (BME, {design_life}-yr)')
+    ax1.set_title(f'Hs-Tp bins ranked by Miner damage (BME, normalised to {design_life}-yr)')
 
     ax2 = ax1.twinx()
     ax2.plot(range(n_top), top['cum_pct'].values, 'k-o', markersize=4)
@@ -269,9 +264,9 @@ def plot_strain_n_curve(df, design_life=25, graphs_dir='graphs'):
 
     # ── Simulated data: aggregate by strain level ──
     df_sim = df.loc[(df['Strain_Range'] > 1e-8) & (df['Tp'] > 0)].copy()
-    hindcast_hours = (pd.to_datetime(df['time']).max() - pd.to_datetime(df['time']).min()).total_seconds() / 3600
-    hindcast_years = hindcast_hours / 8766  # hours per year (365.25 days)
-    life_scale = design_life / hindcast_years
+    hindcast_hours = (pd.to_datetime(df['time']).max()
+                      - pd.to_datetime(df['time']).min()).total_seconds() / 3600
+    life_scale = design_life / (hindcast_hours / 8766)
     df_sim['n_cycles'] = (3600.0 / df_sim['Tp']) * life_scale
 
     log_min = np.log10(df_sim['Strain_Range'].min())
@@ -325,12 +320,15 @@ def plot_strain_n_curve(df, design_life=25, graphs_dir='graphs'):
     plt.close()
 
 
-def plot_violin_top_bins(df, metocean_path, hs_bins=50, tp_bins=50,
-                         n_top=10, graphs_dir='graphs'):
+def plot_violin_top_bins(df, metocean_path, hs_bins=20, tp_bins=20,
+                         n_top=10, design_life=25, graphs_dir='graphs'):
     """
     Half-violin plots with jittered points, median and 95% CI for
     wave_dir, current_dir, water_level, and Uc across the top-N worst
-    Hs-Tp bins ranked by cumulative BME FLS proxy.  One figure per variable.
+    Hs-Tp bins ranked by cumulative Miner damage (BME).  One figure per variable.
+
+    Uses the same Hs-Tp binning as plot_heatmaps / plot_pareto_miner so that
+    every row that falls inside a given bin is included in the violin.
     """
     met_df = pd.read_excel(metocean_path, sheet_name='metocean')
     plot_vars = ['wave_dir', 'current_dir', 'water_level', 'Uc_DA']
@@ -338,19 +336,19 @@ def plot_violin_top_bins(df, metocean_path, hs_bins=50, tp_bins=50,
     if len(merge_cols) > 1:
         df = pd.merge(df, met_df[merge_cols], on='time', how='left')
 
-    fls_col = 'FLS_Proxy_bme' if 'FLS_Proxy_bme' in df.columns else 'FLS_proxy_bme'
+    df = df.copy()
+    df['miner_bme'] = _miner_damage(df, 'Strain_Range_bme', design_life)
 
     hs_edges = np.linspace(df['Hs'].min(), df['Hs'].max(), hs_bins + 1)
     tp_edges = np.linspace(df['Tp'].min(), df['Tp'].max(), tp_bins + 1)
 
-    df = df.copy()
     df['hs_bin'] = pd.cut(df['Hs'], bins=hs_edges, include_lowest=True)
     df['tp_bin'] = pd.cut(df['Tp'], bins=tp_edges, include_lowest=True)
 
-    bin_fls = (df.groupby(['hs_bin', 'tp_bin'], observed=True)[fls_col]
-               .sum().reset_index()
-               .sort_values(fls_col, ascending=False))
-    top_bins = bin_fls.head(n_top)
+    bin_damage = (df.groupby(['hs_bin', 'tp_bin'], observed=True)['miner_bme']
+                  .sum().reset_index()
+                  .sort_values('miner_bme', ascending=False))
+    top_bins = bin_damage.head(n_top)
 
     # Collect data per bin
     bin_labels, bin_data = [], {v: [] for v in plot_vars}
@@ -423,14 +421,13 @@ def plot_violin_top_bins(df, metocean_path, hs_bins=50, tp_bins=50,
 
         # Fix tick labels to show true degrees for directional variables
         if var in dir_centers:
-            from matplotlib.ticker import FuncFormatter
             ax.xaxis.set_major_formatter(
                 FuncFormatter(lambda x, _: f'{x % 360:.0f}'))
 
         ax.set_yticks(range(len(bin_labels)))
         ax.set_yticklabels(bin_labels, fontsize=8)
         ax.set_xlabel(f'{lname} {unit}', fontsize=11)
-        ax.set_title(f'{lname} – Top {n_top} FLS bins (BME)', fontsize=12)
+        ax.set_title(f'{lname} – Top {n_top} Miner damage bins (BME)', fontsize=12)
         ax.grid(axis='x', alpha=0.3)
 
         plt.tight_layout()
