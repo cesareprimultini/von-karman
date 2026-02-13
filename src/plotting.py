@@ -5,7 +5,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
-from von_karman_simulator import compute_velocity_field, apply_transforms
+from vortex_amp import compute_velocity_field, apply_transforms
 
 
 def plot_velocity_field(results_df, timestep_index, cylinders, flow_params, plot_config, output_dir=None):
