@@ -275,7 +275,7 @@ class VortexState:
 class VortexAmp:
     """Von Kármán vortex street simulation using viscous vortex method."""
 
-    def __init__(self, cylinders, nu=4.88e-6, flow_angle_metocean=0,
+    def __init__(self, cylinders, nu=1.14e-6, flow_angle_metocean=0,
                  rotation_angle=0, theta_sep_deg=80.0, x_removal=250.0,
                  dt=0.01, measurement_points=None, save_interval=0.0,
                  turbulence_thresholds=None, sigma_max_factor=0.5,
