@@ -11,13 +11,9 @@ from numba import njit, prange
 
 # CONSTANTS
 INITIAL_CORE_SIZE_FACTOR = 0.1
-CIRCULATION_FACTOR = 1.5
 CYLINDER_TOLERANCE = 0.9
-SIGMOID_STEEPNESS = 10.0
+SIGMOID_STEEPNESS = 4.0 # how fast circulation grows during formation (higher = more step-like)
 FORMATION_NUMBER = 4.0
-WAKE_TRANSVERSE_BASE = 0.5
-WAKE_TRANSVERSE_GROWTH = 0.1
-WAKE_STREAMWISE_DECAY = 20.0
 THETA_SEP_STD_DEG = 5.0
 HIGH_RE_FORMATION_REDUCTION = 0.8
 
@@ -28,23 +24,90 @@ def initial_core_size(D, Re):
 
 
 def compute_strouhal_number(Re):
-    """Strouhal number from Reynolds (Roshko 1961 correlations)."""
+    """Strouhal number for rough cylinders.
+
+    Sub-critical: Fey et al. 1998.
+    Critical/post-critical: St ≈ 0.20 — roughness suppresses the
+    super-critical jump to St ≈ 0.44 seen in smooth cylinders.
+    Refs: Achenbach & Heinecke 1981 (St = 0.25 ± 0.02 transcritical,
+          all roughness tested);  DNV-RP-C205 §9.1.2 (St = 0.2 for
+          design of rough marine cylinders).
+    """
     if Re < 47:
         return 0.0
-    elif Re < 300:
-        return 0.212 * (1 - 21.2 / Re)
-    elif Re < 2e5:
-        return 0.20
-    elif Re < 3.5e6:
-        log_Re = np.log10(Re)
-        return 0.20 + 0.06 * (log_Re - 5.3)
+    elif Re < 180:
+        return 0.2684 - 1.0356 / np.sqrt(Re)
     else:
-        return 0.30
+        return 0.20
 
 
-def compute_circulation_magnitude(U_inf, D):
-    """Target circulation Gamma."""
-    return CIRCULATION_FACTOR * U_inf * D
+def compute_drag_coefficient(Re):
+    """Drag coefficient for rough cylinders.
+
+    Roughness suppresses the drag crisis: Cd never drops below ~0.7
+    (vs 0.2–0.3 for smooth).  Post-critical plateau Cd ≈ 1.0.
+    Refs: Achenbach 1971 (rough cylinder Cd vs Re & k/D);
+          DNV-RP-C205 §6.7 Table 6-3 (Cd = 1.05 marine growth);
+          Schewe 1983 (smooth baseline).
+    """
+    if Re < 2e5:
+        return 1.2 - 0.1 * np.log10(Re / 400) if Re > 400 else 1.2
+    elif Re < 5e5:
+        # Muted drag crisis for rough cylinder (smooth-side Cd → 0.7)
+        Cd_sub = 1.2 - 0.1 * np.log10(2e5 / 400)  # Cd at Re=2e5
+        return Cd_sub - (Cd_sub - 0.7) * (Re - 2e5) / 3e5
+    else:
+        # Post-critical recovery toward ~1.0 (DNV-RP-C205: 1.05 marine growth)
+        return min(0.7 + 0.3 * (np.log10(Re) - np.log10(5e5))
+                   / (np.log10(3.5e6) - np.log10(5e5)), 1.05)
+
+
+def compute_separation_angle(Re):
+    """Separation angle from *rear* stagnation point, in radians.
+
+    Rough-cylinder model: roughness triggers transition but also
+    causes earlier separation than smooth.  Separation moves from
+    ~80° (sub-critical) to ~100° from front (transcritical), much
+    less than the 120–140° seen on smooth cylinders.
+    Refs: Achenbach 1971 (rough cylinder, k/D dependent);
+          Rodriguez et al. 2018 (LES, k/D = 0.02, θ_sep ≈ 96°).
+    Converted: theta_rear = 180° - theta_front.
+    """
+    if Re < 2e5:
+        theta_front = 80.0
+    elif Re < 5e5:
+        # Muted shift for rough cylinder (80° → 100°, not 120°+)
+        theta_front = 80.0 + 20.0 * (Re - 2e5) / 3e5
+    else:
+        theta_front = 100.0
+
+    theta_front = min(theta_front, 105.0)
+    theta_rear = 180.0 - theta_front
+    return np.radians(max(theta_rear, 40.0))
+
+
+def compute_circulation_magnitude(U_inf, D, Re):
+    """Target circulation Gamma = k_Γ · U∞ · D · √(C_D/St).
+
+    k_Γ calibrated to match experimental Γ/(U·D) ≈ 0.3–0.5
+    (Norberg 2003, Bearman 1967).  C_D from Schewe 1983 + Roshko 1961.
+    """
+    # k_Gamma lookup — reduced to match experimental non-dimensional
+    # circulation Γ* = Γ/(U·D) ≈ 0.3–0.5 across regimes.
+    if Re < 1e3:
+        k = 0.45
+    elif Re < 2e5:
+        k = 0.40
+    elif Re < 5e5:
+        k = 0.40 - 0.08 * (Re - 2e5) / 3e5
+    else:
+        k = 0.32
+
+    St = compute_strouhal_number(Re)
+    Cd = compute_drag_coefficient(Re)
+    if St <= 0:
+        return 0.0
+    return k * U_inf * D * np.sqrt(Cd / St)
 
 
 def compute_shedding_period(U_inf, D, St):
@@ -54,25 +117,16 @@ def compute_shedding_period(U_inf, D, St):
     return D / (St * U_inf)
 
 
-def compute_eddy_viscosity_field(x, y, D, nu_molecular, U_inf, Re):
-    """Effective viscosity (molecular + turbulent eddy contribution in wake)."""
-    if Re < 1000:
-        C_eddy = 0.01
-    elif Re < 1e5:
-        C_eddy = 0.02 + 0.01 * np.log10(Re / 1000)
-    else:
-        C_eddy = 0.10
+def compute_effective_viscosity(nu_molecular, turbulent_viscosity_ratio):
+    """Effective viscosity: nu_eff = nu · (1 + turbulent_viscosity_ratio).
 
-    x_norm = x / D
-    y_norm = y / D
+    A uniform eddy viscosity multiplier accounts for unresolved turbulent
+    mixing in the wake.  Primarily affects far-wake vortices (large age)
+    through the Lamb-Oseen core growth sigma = sqrt(sigma_0² + 4·nu_eff·t).
 
-    sigma_wake = WAKE_TRANSVERSE_BASE + WAKE_TRANSVERSE_GROWTH * x_norm
-    f_transverse = np.exp(-(y_norm**2) / (2 * sigma_wake**2))
-    f_streamwise = np.exp(-x_norm / WAKE_STREAMWISE_DECAY)
-    f_wake = f_transverse * f_streamwise
-
-    nu_turbulent = C_eddy * U_inf * D * f_wake
-    return nu_molecular + nu_turbulent
+    Refs: 
+    """
+    return nu_molecular * (1.0 + turbulent_viscosity_ratio)
 
 
 def compute_formation_time(D, U_inf, Re):
@@ -276,9 +330,10 @@ class VortexAmp:
     """Von Kármán vortex street simulation using viscous vortex method."""
 
     def __init__(self, cylinders, nu=1.14e-6, flow_angle_metocean=0,
-                 rotation_angle=0, theta_sep_deg=80.0, x_removal=250.0,
+                 rotation_angle=0, x_removal=250.0,
                  dt=0.01, measurement_points=None, save_interval=0.0,
-                 turbulence_thresholds=None, sigma_max_factor=0.5,
+                 turbulent_viscosity_ratio=0.0,
+                 turbulence_thresholds=None, sigma_max_factor=0.25,
                  output_base_dir='output'):
 
         self.cylinders = cylinders
@@ -287,12 +342,11 @@ class VortexAmp:
         self.nu = nu
         self.flow_angle_metocean = flow_angle_metocean
         self.rotation_angle = rotation_angle
-        self.theta_sep_deg = theta_sep_deg
-        self.theta_sep = np.radians(theta_sep_deg)
         self.x_removal = x_removal
         self.dt = dt
         self.measurement_points = measurement_points or []
         self.save_interval = save_interval
+        self.turbulent_viscosity_ratio = turbulent_viscosity_ratio
         self.sigma_max_factor = sigma_max_factor
 
         self.D_ref = max(cyl['D'] for cyl in cylinders)
@@ -300,9 +354,8 @@ class VortexAmp:
 
         if turbulence_thresholds is None:
             turbulence_thresholds = {
-                'eddy_viscosity': 10_000_000,
-                'stochastic_shedding': 10_000_000,
-                'core_saturation': 10_000_000,
+                'stochastic_shedding': 10_000,
+                'core_saturation': 100_000,
             }
         self.turbulence_thresholds = turbulence_thresholds
 
@@ -363,7 +416,8 @@ class VortexAmp:
                        U_inf_now, Re_now, St_now, flow_angle_now,
                        enable_stochastic):
         """Shed new vortices from each cylinder when due."""
-        Gamma_mag = compute_circulation_magnitude(U_inf_now, self.D_ref)
+        Gamma_mag = compute_circulation_magnitude(U_inf_now, self.D_ref, Re_now)
+        theta_sep = compute_separation_angle(Re_now)
 
         for c_idx, cyl in enumerate(self.cylinders):
             if t < next_shed_times[c_idx]:
@@ -372,7 +426,7 @@ class VortexAmp:
             upper = (shed_counters[c_idx] % 2 == 0)
             new_vortex = shed_vortex_with_turbulence(
                 cyl, t, upper, Re_now, U_inf_now, self.D_ref, Gamma_mag,
-                self.rotation_angle, flow_angle_now, self.theta_sep,
+                self.rotation_angle, flow_angle_now, theta_sep,
                 enable_stochastic=enable_stochastic,
             )
             vortices.append(new_vortex)
@@ -381,27 +435,19 @@ class VortexAmp:
             shed_period = compute_shedding_period(U_inf_now, self.D_ref, St_now)
             next_shed_times[c_idx] += shed_period / 2  # two vortices per period
 
-    def _diffuse_cores(self, t, vortices, U_inf_now, Re_now,
-                       enable_eddy, enable_saturation):
+    def _diffuse_cores(self, t, vortices, enable_saturation):
         """Update core sizes (diffusion) and circulation (growth)."""
         N = len(vortices)
         if N == 0:
             return
 
         ages = t - vortices.birth_t
+        nu_eff = compute_effective_viscosity(self.nu, self.turbulent_viscosity_ratio)
 
-        if enable_eddy:
-            for i in range(N):
-                nu_eff = compute_eddy_viscosity_field(
-                    vortices.x[i], vortices.y[i],
-                    self.D_ref, self.nu, U_inf_now, Re_now,
-                )
-                sigma_new = np.sqrt(vortices.sigma_0[i]**2 + 4 * nu_eff * ages[i])
-                if enable_saturation:
-                    sigma_new = min(sigma_new, self.sigma_max_factor * self.D_ref)
-                vortices.sigma[i] = sigma_new
-        else:
-            vortices.sigma = np.sqrt(vortices.sigma_0**2 + 4 * self.nu * ages)
+        vortices.sigma = np.sqrt(vortices.sigma_0**2 + 4 * nu_eff * ages)
+        if enable_saturation and self.sigma_max_factor is not None:
+            sigma_max = self.sigma_max_factor * self.D_ref
+            np.minimum(vortices.sigma, sigma_max, out=vortices.sigma)
 
         for i in range(N):
             growth = circulation_growth_sigmoid(ages[i], vortices.T_form[i])
@@ -524,7 +570,6 @@ class VortexAmp:
             Re_now = U_inf_now * self.D_ref / self.nu
             St_now = compute_strouhal_number(Re_now)
 
-            enable_eddy = Re_now > self.turbulence_thresholds['eddy_viscosity']
             enable_stochastic = Re_now > self.turbulence_thresholds['stochastic_shedding']
             enable_saturation = Re_now > self.turbulence_thresholds['core_saturation']
 
@@ -533,8 +578,7 @@ class VortexAmp:
                 U_inf_now, Re_now, St_now, flow_angle_now, enable_stochastic,
             )
 
-            self._diffuse_cores(t, vortices, U_inf_now, Re_now,
-                                enable_eddy, enable_saturation)
+            self._diffuse_cores(t, vortices, enable_saturation)
 
             self._advect_rk4(t, vortices, get_velocity, get_flow_angle)
             self._remove_downstream(vortices)

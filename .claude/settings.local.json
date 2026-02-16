@@ -55,7 +55,11 @@
       "WebFetch(domain:www.orcina.com)",
       "WebFetch(domain:oa.upm.es)",
       "WebFetch(domain:erules.veristar.com)",
-      "WebFetch(domain:webthesis.biblio.polito.it)"
+      "WebFetch(domain:webthesis.biblio.polito.it)",
+      "WebFetch(domain:www.academia.edu)",
+      "WebFetch(domain:apps.dtic.mil)",
+      "WebFetch(domain:grokipedia.com)",
+      "WebFetch(domain:core.ac.uk)"
     ],
     "deny": [],
     "ask": []
