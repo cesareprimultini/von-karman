@@ -10,12 +10,13 @@ from scipy.interpolate import interp1d
 from numba import njit, prange
 
 # CONSTANTS
-INITIAL_CORE_SIZE_FACTOR = 0.1
-CYLINDER_TOLERANCE = 0.9
-SIGMOID_STEEPNESS = 4.0 # how fast circulation grows during formation (higher = more step-like)
-FORMATION_NUMBER = 4.0
-THETA_SEP_STD_DEG = 5.0
-HIGH_RE_FORMATION_REDUCTION = 0.8
+INITIAL_CORE_SIZE_FACTOR = 0.1      # vortex core radius at birth, as fraction of D
+CYLINDER_TOLERANCE = 0.9            # fraction of D/2 inside which vortices are removed
+SIGMOID_STEEPNESS = 4.0             # circulation growth rate during formation (higher = more step-like)
+FORMATION_NUMBER = 4.0              # non-dimensional formation time F* ≈ 4.0 (Gharib et al. 1998)
+THETA_SEP_STD_DEG = 5.0             # stochastic jitter on separation angle [deg]
+HIGH_RE_FORMATION_REDUCTION = 0.8   # F* reduction factor at high Re
+TURB_VISC_RATIO = 800.0              # nu_t/nu for turbulent flows; 0 = laminar (auto-applied at high Re)
 
 # PHYSICS FUNCTIONS
 def initial_core_size(D, Re):
@@ -124,7 +125,7 @@ def compute_effective_viscosity(nu_molecular, turbulent_viscosity_ratio):
     mixing in the wake.  Primarily affects far-wake vortices (large age)
     through the Lamb-Oseen core growth sigma = sqrt(sigma_0² + 4·nu_eff·t).
 
-    Refs: 
+    Refs: Pope (2000), page 93, eqn 4.47 (defines nu_eff = nu + nu_turbulent);
     """
     return nu_molecular * (1.0 + turbulent_viscosity_ratio)
 
@@ -332,7 +333,6 @@ class VortexAmp:
     def __init__(self, cylinders, nu=1.14e-6, flow_angle_metocean=0,
                  rotation_angle=0, x_removal=250.0,
                  dt=0.01, measurement_points=None, save_interval=0.0,
-                 turbulent_viscosity_ratio=0.0,
                  turbulence_thresholds=None, sigma_max_factor=0.25,
                  output_base_dir='output'):
 
@@ -346,7 +346,6 @@ class VortexAmp:
         self.dt = dt
         self.measurement_points = measurement_points or []
         self.save_interval = save_interval
-        self.turbulent_viscosity_ratio = turbulent_viscosity_ratio
         self.sigma_max_factor = sigma_max_factor
 
         self.D_ref = max(cyl['D'] for cyl in cylinders)
@@ -442,7 +441,8 @@ class VortexAmp:
             return
 
         ages = t - vortices.birth_t
-        nu_eff = compute_effective_viscosity(self.nu, self.turbulent_viscosity_ratio)
+        visc_ratio = TURB_VISC_RATIO if enable_saturation else 0.0
+        nu_eff = compute_effective_viscosity(self.nu, visc_ratio)
 
         vortices.sigma = np.sqrt(vortices.sigma_0**2 + 4 * nu_eff * ages)
         if enable_saturation and self.sigma_max_factor is not None:
