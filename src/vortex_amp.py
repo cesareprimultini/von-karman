@@ -9,15 +9,15 @@ from tqdm import tqdm
 from scipy.interpolate import interp1d
 from numba import njit, prange
 
-# CONSTANTS
-INITIAL_CORE_SIZE_FACTOR = 0.1      # vortex core radius at birth, as fraction of D
-CYLINDER_TOLERANCE = 0.9            # fraction of D/2 inside which vortices are removed
+# TUNABLE CONSTANTS
+INITIAL_CORE_SIZE_FACTOR = 0.2      # vortex core radius at birth, as fraction of D (0.1 to 0.3 typical)
+CYLINDER_TOLERANCE = 0.9            # fraction of D/2 inside which vortices are removed (mostly for reverse flow cases)
 SIGMOID_STEEPNESS = 4.0             # circulation growth rate during formation (higher = more step-like)
 FORMATION_NUMBER = 4.0              # non-dimensional formation time F* ≈ 4.0 (Gharib et al. 1998)
 THETA_SEP_STD_DEG = 5.0             # stochastic jitter on separation angle [deg]
 HIGH_RE_FORMATION_REDUCTION = 0.8   # F* reduction factor at high Re
-TURB_VISC_RATIO = 800.0              # nu_t/nu for turbulent flows; 0 = laminar (auto-applied at high Re)
-KC_MIN_SHEDDING = 4.0                # min KC for vortex shedding (Sumer & Fredsøe, Ch. 3)
+TURB_VISC_RATIO = 800.0             # nu_t/nu for turbulent flows; 0 = always laminar
+KC_MIN_SHEDDING = 4.0               # min KC for vortex shedding (Sumer & Fredsøe, Ch. 3)
 SIGMA_MAX_FACTOR = 0.4              # max vortex core radius as fraction of D_ref (caps diffusion growth)
 
 # PHYSICS FUNCTIONS
@@ -446,18 +446,17 @@ class VortexAmp:
             shed_counters[c_idx] += 1
             shed_accumulators[c_idx] -= self._shed_half_period
 
-    def _diffuse_cores(self, t, vortices, enable_saturation):
+    def _diffuse_cores(self, t, vortices):
         """Update core sizes (diffusion) and circulation (growth)."""
         N = len(vortices)
         if N == 0:
             return
 
         ages = t - vortices.birth_t
-        visc_ratio = TURB_VISC_RATIO if enable_saturation else 0.0
-        nu_eff = compute_effective_viscosity(self.nu, visc_ratio)
 
-        vortices.sigma = np.sqrt(vortices.sigma_0**2 + 4 * nu_eff * ages)
-        if enable_saturation and self.sigma_max_factor is not None:
+        # diffusion is irreversible — accumulate incrementally, never recompute from birth
+        vortices.sigma = np.sqrt(vortices.sigma**2 + 4 * self._nu_eff * self.dt)
+        if self._enable_saturation_ref and self.sigma_max_factor is not None:
             sigma_max = self.sigma_max_factor * self.D_ref
             np.minimum(vortices.sigma, sigma_max, out=vortices.sigma)
 
@@ -580,6 +579,11 @@ class VortexAmp:
         self._shed_half_period = shed_period / 2
         self._T_form_ref = compute_formation_time(self.D_ref, U_ref, Re_ref)
 
+        # turbulence regime set by reference re — wake turbulence persists through flow reversal
+        self._enable_saturation_ref = Re_ref > self.turbulence_thresholds['core_saturation']
+        visc_ratio = TURB_VISC_RATIO if self._enable_saturation_ref else 0.0
+        self._nu_eff = compute_effective_viscosity(self.nu, visc_ratio)
+
         # Accumulator starts at threshold → shed immediately on first step
         shed_accumulators = [self._shed_half_period] * len(self.cylinders)
 
@@ -606,14 +610,13 @@ class VortexAmp:
             St_now = compute_strouhal_number(Re_now)
 
             enable_stochastic = Re_now > self.turbulence_thresholds['stochastic_shedding']
-            enable_saturation = Re_now > self.turbulence_thresholds['core_saturation']
 
             self._shed_vortices(
                 t, vortices, shed_counters, shed_accumulators,
                 U_inf_now, flow_angle_now, enable_stochastic,
             )
 
-            self._diffuse_cores(t, vortices, enable_saturation)
+            self._diffuse_cores(t, vortices)
 
             self._advect_rk4(t, vortices, get_velocity, get_flow_angle)
             self._remove_downstream(vortices)
