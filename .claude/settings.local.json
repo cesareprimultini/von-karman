@@ -59,7 +59,8 @@
       "WebFetch(domain:www.academia.edu)",
       "WebFetch(domain:apps.dtic.mil)",
       "WebFetch(domain:grokipedia.com)",
-      "WebFetch(domain:core.ac.uk)"
+      "WebFetch(domain:core.ac.uk)",
+      "Bash(pdftotext:*)"
     ],
     "deny": [],
     "ask": []

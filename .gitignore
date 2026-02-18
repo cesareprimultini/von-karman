@@ -24,8 +24,11 @@ wheels/
 .installed.cfg
 *.egg
 
-# Notes
+# Notes and documentation
 *.md
+*.pdf
+*.txt
+*.docx
 
 # PyInstaller
 *.manifest

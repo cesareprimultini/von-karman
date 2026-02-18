@@ -17,6 +17,8 @@ FORMATION_NUMBER = 4.0              # non-dimensional formation time F* ≈ 4.0 
 THETA_SEP_STD_DEG = 5.0             # stochastic jitter on separation angle [deg]
 HIGH_RE_FORMATION_REDUCTION = 0.8   # F* reduction factor at high Re
 TURB_VISC_RATIO = 800.0              # nu_t/nu for turbulent flows; 0 = laminar (auto-applied at high Re)
+KC_MIN_SHEDDING = 4.0                # min KC for vortex shedding (Sumer & Fredsøe, Ch. 3)
+SIGMA_MAX_FACTOR = 0.4              # max vortex core radius as fraction of D_ref (caps diffusion growth)
 
 # PHYSICS FUNCTIONS
 def initial_core_size(D, Re):
@@ -27,12 +29,9 @@ def initial_core_size(D, Re):
 def compute_strouhal_number(Re):
     """Strouhal number for rough cylinders.
 
-    Sub-critical: Fey et al. 1998.
-    Critical/post-critical: St ≈ 0.20 — roughness suppresses the
-    super-critical jump to St ≈ 0.44 seen in smooth cylinders.
-    Refs: Achenbach & Heinecke 1981 (St = 0.25 ± 0.02 transcritical,
-          all roughness tested);  DNV-RP-C205 §9.1.2 (St = 0.2 for
-          design of rough marine cylinders).
+    Refs: Achenbach & Heinecke 1981 (St = 0.25 ± 0.02 transcritical, all roughness tested)
+          DNV-RP-C205 Chapter 9.1.2 (St = 0.2 for design of rough marine cylinders)
+          Lienhard 1966 (Synopsis of lift, drag and vortex frequency)
     """
     if Re < 47:
         return 0.0
@@ -46,7 +45,7 @@ def compute_drag_coefficient(Re):
     """Drag coefficient for rough cylinders.
 
     Roughness suppresses the drag crisis: Cd never drops below ~0.7
-    (vs 0.2–0.3 for smooth).  Post-critical plateau Cd ≈ 1.0.
+    (vs 0.2-0.3 for smooth).  Post-critical plateau Cd ≈ 1.0.
     Refs: Achenbach 1971 (rough cylinder Cd vs Re & k/D);
           DNV-RP-C205 §6.7 Table 6-3 (Cd = 1.05 marine growth);
           Schewe 1983 (smooth baseline).
@@ -64,33 +63,34 @@ def compute_drag_coefficient(Re):
 
 
 def compute_separation_angle(Re):
-    """Separation angle from *rear* stagnation point, in radians.
-
-    Rough-cylinder model: roughness triggers transition but also
-    causes earlier separation than smooth.  Separation moves from
-    ~80° (sub-critical) to ~100° from front (transcritical), much
-    less than the 120–140° seen on smooth cylinders.
-    Refs: Achenbach 1971 (rough cylinder, k/D dependent);
-          Rodriguez et al. 2018 (LES, k/D = 0.02, θ_sep ≈ 96°).
-    Converted: theta_rear = 180° - theta_front.
+    """Separation angle from the front stagnation point for a ROUGH cylinder.
+    
+    Refs: Achenbach (1971 and 1968) - 1971 should be gold but can't access
+          Rodriguez et al. (2017)
+          Pasam et al. (2023)
     """
-    if Re < 2e5:
-        theta_front = 80.0
-    elif Re < 5e5:
-        # Muted shift for rough cylinder (80° → 100°, not 120°+)
-        theta_front = 80.0 + 20.0 * (Re - 2e5) / 3e5
+    # TODO: could implement dynamic ks_D input to allow for different levels of MG
+    ks_D = 0.012  # good approximation for now
+    
+    # Roughness Reynolds Number
+    Rek = Re * ks_D
+    
+    if Rek < 150:
+        theta_deg = 80.0
+    elif Rek < 300:
+        theta_deg = 80.0 + (113.0 - 80.0) * (Rek - 150.0) / 150.0
+    elif Rek < 1000:
+        theta_deg = 113.0 - (113.0 - 100.0) * (Rek - 300.0) / 700.0
     else:
-        theta_front = 100.0
+        theta_deg = 100.0
 
-    theta_front = min(theta_front, 105.0)
-    theta_rear = 180.0 - theta_front
-    return np.radians(max(theta_rear, 40.0))
+    return np.radians(np.clip(theta_deg, 75.0, 115.0)) # clip to avoid unphysical extremes just in case
 
 
 def compute_circulation_magnitude(U_inf, D, Re):
     """Target circulation Gamma = k_Γ · U∞ · D · √(C_D/St).
 
-    k_Γ calibrated to match experimental Γ/(U·D) ≈ 0.3–0.5
+    k_Γ calibrated to match experimental Γ/(U·D) ≈ 0.3-0.5
     (Norberg 2003, Bearman 1967).  C_D from Schewe 1983 + Roshko 1961.
     """
     # k_Gamma lookup — reduced to match experimental non-dimensional
@@ -154,7 +154,6 @@ def circulation_growth_sigmoid(t_age, T_form):
     return np.clip(g_normalized, 0.0, 1.0)
 
 
-
 # NUMBA KERNEL
 @njit(parallel=True, fastmath=True)
 def compute_velocities_numba(targets_x, targets_y, sources_x, sources_y,
@@ -187,7 +186,6 @@ def compute_velocities_numba(targets_x, targets_y, sources_x, sources_y,
         V[j] = v_total
 
     return U, V
-
 
 
 # HELPER FUNCTIONS
@@ -240,8 +238,8 @@ def compute_velocity_field(X, Y, vortices, U_inf, flow_angle):
 
 def shed_vortex_with_turbulence(cyl, t, upper, Re, U_inf, D_ref, Gamma_mag,
                                 rotation_angle, flow_angle, theta_sep,
-                                enable_stochastic=True):
-    """Create new vortex at separation point with optional turbulent fluctuations."""
+                                T_form, enable_stochastic=True):
+    """Create a new vortex at the separation point."""
     sign = 1 if upper else -1
     gamma_base = -Gamma_mag if upper else Gamma_mag
 
@@ -252,24 +250,26 @@ def shed_vortex_with_turbulence(cyl, t, upper, Re, U_inf, D_ref, Gamma_mag,
     else:
         gamma = gamma_base
 
-    x_cyl_global, y_cyl_global = apply_transforms(
+    x_cyl, y_cyl = apply_transforms(
         cyl['x'], cyl['y'], rotation_angle, flow_angle
     )
 
-    rear_angle = np.radians(flow_angle) + np.pi
-    theta = rear_angle - sign * theta_sep
+    # Front stagnation point faces into the oncoming flow
+    front_angle = np.radians(flow_angle) + np.pi
+    # Separation: offset from front toward rear, +upper / -lower
+    theta = front_angle - sign * theta_sep
     a = cyl['D'] / 2
 
     return {
-        'x': x_cyl_global + a * np.cos(theta),
-        'y': y_cyl_global + a * np.sin(theta),
+        'x': x_cyl + a * np.cos(theta),
+        'y': y_cyl + a * np.sin(theta),
         'gamma_target': gamma,
         'gamma': 0.0,
         'sigma': initial_core_size(D_ref, Re),
         'sigma_0': initial_core_size(D_ref, Re),
         'birth_t': t,
         'U_inf_birth': U_inf,
-        'T_form': compute_formation_time(D_ref, U_inf, Re),
+        'T_form': T_form,
     }
 
 
@@ -287,7 +287,6 @@ def remove_internal_vortices(cylinders, vortex_state, rotation_angle, flow_angle
         keep &= dist >= (cyl['D'] / 2) * CYLINDER_TOLERANCE
 
     vortex_state.filter(keep)
-
 
 
 # VORTEX STATE (parallel NumPy arrays)
@@ -325,7 +324,6 @@ class VortexState:
         ]
 
 
-
 # VORTEX SIMULATION CLASS
 class VortexAmp:
     """Von Kármán vortex street simulation using viscous vortex method."""
@@ -333,7 +331,7 @@ class VortexAmp:
     def __init__(self, cylinders, nu=1.14e-6, flow_angle_metocean=0,
                  rotation_angle=0, x_removal=250.0,
                  dt=0.01, measurement_points=None, save_interval=0.0,
-                 turbulence_thresholds=None, sigma_max_factor=0.25,
+                 turbulence_thresholds=None, sigma_max_factor=SIGMA_MAX_FACTOR,
                  output_base_dir='output'):
 
         self.cylinders = cylinders
@@ -411,28 +409,42 @@ class VortexAmp:
         raise ValueError(f"Invalid flow_angle_mode: {flow_angle_mode}")
 
     # Simulation sub-steps
-    def _shed_vortices(self, t, vortices, shed_counters, next_shed_times,
-                       U_inf_now, Re_now, St_now, flow_angle_now,
-                       enable_stochastic):
-        """Shed new vortices from each cylinder when due."""
-        Gamma_mag = compute_circulation_magnitude(U_inf_now, self.D_ref, Re_now)
-        theta_sep = compute_separation_angle(Re_now)
+    def _shed_vortices(self, t, vortices, shed_counters, shed_accumulators,
+                       U_inf_now, flow_angle_now, enable_stochastic):
+        """Shed new vortices using fixed-frequency accumulator.
+
+        Shedding frequency is fixed from St * (Uc + Um) / D
+        Sumer & Fredsoe, Hydrodynamics, Eq. 4.73 and Scott/Terry preferred approach for now
+        Vortex strength and separation point use the instantaneous |U(t)|.
+        """
+        if not self._shedding_active:
+            return
+
+        # Instantaneous |U| for vortex strength and separation angle
+        U_abs = abs(U_inf_now)
+        Re_inst = U_abs * self.D_ref / self.nu
+        Gamma_mag = compute_circulation_magnitude(U_abs, self.D_ref, Re_inst)
+        theta_sep = compute_separation_angle(Re_inst)
+
+        # Separation point flips to correct side during flow reversal
+        effective_flow_angle = flow_angle_now if U_inf_now >= 0 else flow_angle_now + 180.0
 
         for c_idx, cyl in enumerate(self.cylinders):
-            if t < next_shed_times[c_idx]:
+            shed_accumulators[c_idx] += self.dt
+
+            if shed_accumulators[c_idx] < self._shed_half_period:
                 continue
 
             upper = (shed_counters[c_idx] % 2 == 0)
             new_vortex = shed_vortex_with_turbulence(
-                cyl, t, upper, Re_now, U_inf_now, self.D_ref, Gamma_mag,
-                self.rotation_angle, flow_angle_now, theta_sep,
+                cyl, t, upper, Re_inst, U_abs, self.D_ref, Gamma_mag,
+                self.rotation_angle, effective_flow_angle, theta_sep,
+                T_form=self._T_form_ref,
                 enable_stochastic=enable_stochastic,
             )
             vortices.append(new_vortex)
             shed_counters[c_idx] += 1
-
-            shed_period = compute_shedding_period(U_inf_now, self.D_ref, St_now)
-            next_shed_times[c_idx] += shed_period / 2  # two vortices per period
+            shed_accumulators[c_idx] -= self._shed_half_period
 
     def _diffuse_cores(self, t, vortices, enable_saturation):
         """Update core sizes (diffusion) and circulation (growth)."""
@@ -542,13 +554,36 @@ class VortexAmp:
         t = 0.0
         shed_counters = [0] * len(self.cylinders)
 
-        U_inf_0 = get_velocity(t)
-        Re_0 = U_inf_0 * self.D_ref / self.nu
-        St_0 = compute_strouhal_number(Re_0)
-        shed_period_0 = compute_shedding_period(U_inf_0, self.D_ref, St_0)
-        next_shed_times = [shed_period_0] * len(self.cylinders)
+        # Fixed shedding frequency from reference velocity
+        # (Sumer & Fredsøe, Eq. 4.73: fv = St × (Uc + Um) / D)
+        U_current = kwargs.get('U_current', None)
+        U_wave_amp = kwargs.get('U_wave_amp', None)
+        T_wave = kwargs.get('T_wave', None)
 
-        self._print_header(U_inf_0, Re_0, St_0, shed_period_0)
+        if U_current is not None and U_wave_amp is not None:
+            U_ref = U_current + U_wave_amp
+            self._KC = U_wave_amp * T_wave / self.D_ref if T_wave else np.inf
+            Re_current = U_current * self.D_ref / self.nu
+        else:
+            # Steady flow: use initial velocity, always shed
+            U_ref = abs(get_velocity(t))
+            self._KC = np.inf
+            Re_current = np.inf
+
+        # Shed if either: current alone drives shedding (Re > 47 → St > 0),
+        # or oscillatory KC exceeds threshold (Sumer & Fredsøe, Ch. 3)
+        self._shedding_active = (Re_current > 47) or (self._KC >= KC_MIN_SHEDDING)
+
+        Re_ref = U_ref * self.D_ref / self.nu
+        St_ref = compute_strouhal_number(Re_ref)
+        shed_period = compute_shedding_period(U_ref, self.D_ref, St_ref)
+        self._shed_half_period = shed_period / 2
+        self._T_form_ref = compute_formation_time(self.D_ref, U_ref, Re_ref)
+
+        # Accumulator starts at threshold → shed immediately on first step
+        shed_accumulators = [self._shed_half_period] * len(self.cylinders)
+
+        self._print_header(U_ref, Re_ref, St_ref, shed_period, self._KC)
 
         # History storage
         history = {
@@ -567,15 +602,15 @@ class VortexAmp:
         for step in tqdm(range(num_steps), desc="Simulating", mininterval=0.5, unit="step"):
             U_inf_now = get_velocity(t)
             flow_angle_now = get_flow_angle(t)
-            Re_now = U_inf_now * self.D_ref / self.nu
+            Re_now = abs(U_inf_now) * self.D_ref / self.nu
             St_now = compute_strouhal_number(Re_now)
 
             enable_stochastic = Re_now > self.turbulence_thresholds['stochastic_shedding']
             enable_saturation = Re_now > self.turbulence_thresholds['core_saturation']
 
             self._shed_vortices(
-                t, vortices, shed_counters, next_shed_times,
-                U_inf_now, Re_now, St_now, flow_angle_now, enable_stochastic,
+                t, vortices, shed_counters, shed_accumulators,
+                U_inf_now, flow_angle_now, enable_stochastic,
             )
 
             self._diffuse_cores(t, vortices, enable_saturation)
@@ -606,12 +641,14 @@ class VortexAmp:
         return self.results_df
 
     @staticmethod
-    def _print_header(U_inf_0, Re_0, St_0, shed_period_0):
+    def _print_header(U_ref, Re_ref, St_ref, shed_period, KC):
         print("Starting vortex method simulation...")
-        print(f"  Initial velocity U_inf(0) = {U_inf_0:.3f} m/s")
-        print(f"  Initial Reynolds Re(0) = {Re_0:.2e}")
-        print(f"  Strouhal number St(0) = {St_0:.3f}")
-        print(f"  Initial shedding period = {shed_period_0:.3f} s\n")
+        print(f"  Reference velocity (Uc+Um) = {U_ref:.3f} m/s")
+        print(f"  Reference Reynolds number  = {Re_ref:.2e}")
+        print(f"  Strouhal number            = {St_ref:.3f}")
+        print(f"  Shedding period (fixed)    = {shed_period:.3f} s")
+        print(f"  Keulegan-Carpenter KC      = {KC:.2f}")
+        print(f"  KC shedding threshold      = {KC_MIN_SHEDDING:.1f}\n")
 
     # Results saving/loading
     def save_results(self, filename):
