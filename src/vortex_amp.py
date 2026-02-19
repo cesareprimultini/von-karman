@@ -122,10 +122,16 @@ def compute_effective_viscosity(nu_molecular, turbulent_viscosity_ratio):
     """Effective viscosity: nu_eff = nu · (1 + turbulent_viscosity_ratio).
 
     A uniform eddy viscosity multiplier accounts for unresolved turbulent
-    mixing in the wake.  Primarily affects far-wake vortices (large age)
+    mixing in the wake. Should primarily affect mid/far-wake vortices
     through the Lamb-Oseen core growth sigma = sqrt(sigma_0² + 4·nu_eff·t).
 
-    Refs: Pope (2000), page 93, eqn 4.47 (defines nu_eff = nu + nu_turbulent);
+    The ratio (~10^2 to 10^3) in theory scales with Re (0.02 * Cd * Re) based on
+    Schlichting; we use a much lower value to prevent over-diffusion in the near-wake.
+    This should be updated in the future as realitically depends on where in the wake
+    the vortex is and how long it's been shed.
+
+    Refs: Pope (2000), page 93, eqn 4.47 (defines nu_eff = nu + nu_turbulent)
+          Schlichting (1979), Boundary Layer Theory
     """
     return nu_molecular * (1.0 + turbulent_viscosity_ratio)
 
