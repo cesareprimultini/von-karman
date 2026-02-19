@@ -16,7 +16,7 @@ SIGMOID_STEEPNESS = 4.0             # circulation growth rate during formation (
 FORMATION_NUMBER = 4.0              # non-dimensional formation time F* ≈ 4.0 (Gharib et al. 1998)
 THETA_SEP_STD_DEG = 5.0             # stochastic jitter on separation angle [deg]
 HIGH_RE_FORMATION_REDUCTION = 0.8   # F* reduction factor at high Re
-TURB_VISC_RATIO = 800.0             # nu_t/nu for turbulent flows; 0 = always laminar
+TURB_VISC_RATIO = 2000.0             # nu_t/nu for turbulent flows; 0 = always laminar
 KC_MIN_SHEDDING = 4.0               # min KC for vortex shedding (Sumer & Fredsøe, Ch. 3)
 SIGMA_MAX_FACTOR = 0.4              # max vortex core radius as fraction of D_ref (caps diffusion growth)
 
