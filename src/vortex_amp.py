@@ -16,7 +16,7 @@ SIGMOID_STEEPNESS = 4.0             # circulation growth rate during formation (
 FORMATION_NUMBER = 4.0              # non-dimensional formation time F* ≈ 4.0 (Gharib et al. 1998)
 THETA_SEP_STD_DEG = 5.0             # stochastic jitter on separation angle [deg]
 HIGH_RE_FORMATION_REDUCTION = 0.8   # F* reduction factor at high Re
-TURB_VISC_RATIO = 2000.0             # nu_t/nu for turbulent flows; 0 = always laminar
+TURB_VISC_RATIO = 1000.0              # max SGS nu_t/nu cap for age-dependent model; 0 = laminar
 KC_MIN_SHEDDING = 4.0               # min KC for vortex shedding (Sumer & Fredsøe, Ch. 3)
 SIGMA_MAX_FACTOR = 0.4              # max vortex core radius as fraction of D_ref (caps diffusion growth)
 
@@ -118,22 +118,20 @@ def compute_shedding_period(U_inf, D, St):
     return D / (St * U_inf)
 
 
-def compute_effective_viscosity(nu_molecular, turbulent_viscosity_ratio):
-    """Effective viscosity: nu_eff = nu · (1 + turbulent_viscosity_ratio).
+def compute_effective_viscosity(nu_molecular, nu_t_max, ages, shed_half_period):
+    """Age-dependent sub-grid scale (SGS) effective viscosity per particle.
 
-    A uniform eddy viscosity multiplier accounts for unresolved turbulent
-    mixing in the wake. Should primarily affect mid/far-wake vortices
-    through the Lamb-Oseen core growth sigma = sqrt(sigma_0² + 4·nu_eff·t).
+    SGS = dissipation below the resolution of the discrete vortex particles.
+    DVM particles already resolve large-scale mixing, so only the unresolved
+    small-scale cascade needs modelling. Full Schlichting (0.0222*Cd*Re) would
+    double-count and dissipate way too much; ratio capped at ~1000 (~10 % of Schlichting),
+    but tunable (TURB_VISC_RATIO).
 
-    The ratio in theory scales with Re (0.0222 * Cd * Re) based on
-    Schlichting; we use a much lower value to prevent over-diffusion in the near-wake.
-    This should be updated in the future as realistically depends on where in the wake
-    the vortex is and how long it's been shed.
-
-    Refs: Pope (2000), page 93, eqn 4.47 (defines nu_eff = nu + nu_turbulent)
-          Schlichting (1979), Boundary Layer Theory
+    Refs:   Pope (2000) p. 93 eq. 4.47
+            Schlichting (1979)
+            Squire (1965)
     """
-    return nu_molecular * (1.0 + turbulent_viscosity_ratio)
+    return nu_molecular + nu_t_max * (1.0 - np.exp(-ages / (2.0 * shed_half_period)))
 
 
 def compute_formation_time(D, U_inf, Re):
@@ -459,9 +457,12 @@ class VortexAmp:
             return
 
         ages = t - vortices.birth_t
+        nu_eff_array = compute_effective_viscosity(
+            self.nu, self._nu_t_max, ages, self._shed_half_period
+        )
 
         # diffusion is irreversible — accumulate incrementally, never recompute from birth
-        vortices.sigma = np.sqrt(vortices.sigma**2 + 4 * self._nu_eff * self.dt)
+        vortices.sigma = np.sqrt(vortices.sigma**2 + 4 * nu_eff_array * self.dt)
         if self._enable_saturation_ref and self.sigma_max_factor is not None:
             sigma_max = self.sigma_max_factor * self.D_ref
             np.minimum(vortices.sigma, sigma_max, out=vortices.sigma)
@@ -588,7 +589,7 @@ class VortexAmp:
         # turbulence regime set by reference re — wake turbulence persists through flow reversal
         self._enable_saturation_ref = Re_ref > self.turbulence_thresholds['core_saturation']
         visc_ratio = TURB_VISC_RATIO if self._enable_saturation_ref else 0.0
-        self._nu_eff = compute_effective_viscosity(self.nu, visc_ratio)
+        self._nu_t_max = self.nu * visc_ratio  # max SGS turbulent viscosity component
 
         # Accumulator starts at threshold → shed immediately on first step
         shed_accumulators = [self._shed_half_period] * len(self.cylinders)
