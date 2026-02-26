@@ -24,6 +24,10 @@ wheels/
 .installed.cfg
 *.egg
 
+# Large data files
+*.csv
+*.pkl
+
 # Notes and documentation
 *.md
 *.pdf
