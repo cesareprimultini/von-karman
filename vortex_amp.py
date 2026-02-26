@@ -13,9 +13,7 @@ from numba import njit, prange
 INITIAL_CORE_SIZE_FACTOR = 0.2      # vortex core radius at birth, as fraction of D (0.1 to 0.3 typical)
 CYLINDER_TOLERANCE = 0.9            # fraction of D/2 inside which vortices are removed (mostly for reverse flow cases)
 SIGMOID_STEEPNESS = 4.0             # circulation growth rate during formation (higher = more step-like)
-FORMATION_NUMBER = 4.0              # non-dimensional formation time F* ≈ 4.0 (Gharib et al. 1998)
 THETA_SEP_STD_DEG = 5.0             # stochastic jitter on separation angle [deg]
-HIGH_RE_FORMATION_REDUCTION = 0.8   # F* reduction factor at high Re
 TURB_VISC_RATIO = 1000.0              # max SGS nu_t/nu cap for age-dependent model; 0 = laminar
 KC_MIN_SHEDDING = 4.0               # min KC for vortex shedding (Sumer & Fredsøe, Ch. 3)
 SIGMA_MAX_FACTOR = 0.4              # max vortex core radius as fraction of D_ref (caps diffusion growth)
@@ -134,12 +132,33 @@ def compute_effective_viscosity(nu_molecular, nu_t_max, ages, shed_half_period):
     return nu_molecular + nu_t_max * (1.0 - np.exp(-ages / (2.0 * shed_half_period)))
 
 
+def compute_formation_number(Re):
+    """Non-dimensional vortex formation length F* = l_f / D.
+
+    NEEDS FURTHER CALIBRATION AND CHECKING AGAINST EXPERIMENTS
+
+    l_f is the formation region length: distance from the cylinder to where
+    the growing vortex first draws the opposite shear layer across the wake axis.
+
+    Refs: Gerrard, J.H. (1966). J. Fluid Mech. 25(2), 401-413.
+          Noca, F., Park, H. & Gharib, M. (1998). Proc. Conf. Bluff Body
+          Wakes & VIV, ASME Fluids Eng. Div.
+    """
+    if Re < 47:
+        return 0.0
+    elif Re < 300:
+        return 2.0
+    elif Re < 1500:
+        return 2.5
+    elif Re < 1e4:
+        return 1.5
+    else:
+        return 1.0
+
+
 def compute_formation_time(D, U_inf, Re):
-    """Vortex formation time scale (formation number F* ~ 4.0)."""
-    F_star = FORMATION_NUMBER
-    if Re > 1e5:
-        F_star *= HIGH_RE_FORMATION_REDUCTION
-    return F_star * (D / U_inf)
+    """Vortex formation time scale T_f = F*(Re) * D / U_inf."""
+    return compute_formation_number(Re) * (D / U_inf)
 
 
 def circulation_growth_sigmoid(t_age, T_form):
